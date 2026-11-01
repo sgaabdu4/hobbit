@@ -50,7 +50,9 @@ The first daily-reminder test failed because it queried Apple's call application
 
 Run `swift test` and `npm test` for the offline suites. Use the `HobbitUITests` scheme on an already signed-in iPhone for routine interface checks.
 
-The review request records the final unit, interface and native analysis results.
+The final offline suites passed: 15 Swift tests and 10 server tests. The routine iPhone suite reported four passed tests and seven intentionally skipped checks. Xcode then stalled while closing the test session. Its runner was interrupted after preserving the results, so that command exited with status 75. This is not a clean full-suite command exit. The separate live device checks above completed as recorded.
+
+Native Xcode analysis passed.
 
 The `HobbitSpokenStop`, `HobbitPetCreation` and `HobbitIncomingDemo` schemes use paid APIs. Spoken checks print a marker when they are ready for a synthetic phrase. Keep the phone near the audio source. The incoming check needs a scheduled call from the paired server.
 
