@@ -46,6 +46,16 @@ The first daily-reminder test failed because it queried Apple's call application
 - A public, multi-user backend or App Store distribution. Calls still require the development Mac to be awake and reachable.
 - A coin shop, pet accessories, one-time appointments and ChatGPT pet-library access. These are outside the shipped daily-habit journey.
 
+## Hosted deployment follow-up
+
+On 1 November, GitHub Actions deployed the server to an existing always-on host. The paired API passed checks over public HTTPS with the Mac server stopped. Original habits and device registration were copied to persistent storage. Real hosted Responses and Decisions requests passed. Existing Appwrite API access and its private Console boundary were checked after the proxy reload.
+
+The hosted server runs as a non-root container with automatic restart, a read-only root filesystem and a 384 MB memory limit. The temporary deployment runner and its restricted SSH access were removed after the job. Deployment: [GitHub Actions run](https://github.com/sgaabdu4/hobbit/actions/runs/41334536966).
+
+The hosted changes passed 14 server tests, 15 Swift tests and native Xcode analysis. A device call report confirmed receipt while protected data was unavailable and the app was in the background. The answer-and-audio check is still pending. The build with the hosted address installed on retry, but iOS refused foreground launch while the phone was locked. Mobile-data verification is also pending. These results do not yet prove the full hosted iPhone journey.
+
+See [hosted setup](HOSTING.md). The Mac-dependent limits above describe the earlier development setup.
+
 ## Repeat the checks
 
 Run `swift test` and `npm test` for the offline suites. Use the `HobbitUITests` scheme on an already signed-in iPhone for routine interface checks.
