@@ -64,7 +64,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
         try Task.checkCancellation()
         guard peer.iceGatheringState == .complete, let sdp = peer.localDescription?.sdp else {
-            throw AuthFailure.invalid("The network could not prepare this call. Try another Wi-Fi network.")
+            throw AuthFailure.invalid("The network could not prepare this call. Try mobile data or another Wi-Fi network.")
         }
         var body: [String: Any] = ["sdp": sdp, "habit": habit, "mode": mode]
         if onboarding { body["purpose"] = "onboarding" }

@@ -1,0 +1,23 @@
+name: Deploy hosted Hobbit
+on:
+  workflow_dispatch:
+  push:
+    branches: [post-submission-audit]
+    paths: ['.github/workflows/hosted-deploy.yml']
+permissions:
+  contents: read
+concurrency:
+  group: hosted-hobbit
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'sgaabdu4/hobbit' && github.actor == 'sgaabdu4' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, hobbit-deploy-once]
+    timeout-minutes: 15
+    env:
+      DEPLOY_HOST: ${{ vars.HOBBIT_DEPLOY_HOST }}
+    steps:
+      - name: Deploy the reviewed release
+        run: |
+          set -eu
+          ssh -F /dev/null -i /deployment/key -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/deployment/known_hosts -o ConnectTimeout=15 "root@$DEPLOY_HOST" deploy

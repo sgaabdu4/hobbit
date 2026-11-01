@@ -13,7 +13,7 @@ function request(path, method = 'GET', body) {
   return new Promise((resolve, reject) => {
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
     const connection = https.request(new URL(path, configuration.serverURL + '/'), {
-      method, ca: readFileSync(new URL('../.local/tls/cert.pem', import.meta.url)),
+      method, ...(configuration.certificate ? { ca: readFileSync(new URL('../.local/tls/cert.pem', import.meta.url)) } : {}),
       headers: { authorization: 'Bearer ' + configuration.deviceSecret, 'content-type': 'application/json', ...(data ? { 'content-length': data.length } : {}) },
       timeout: 15000
     }, response => {

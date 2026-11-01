@@ -22,6 +22,8 @@ Voice logs confirmed microphone input, received audio, transcript events and lou
 
 ## Set up the development demo
 
+For calls without an awake Mac or shared Wi-Fi, see [hosted setup](HOSTING.md).
+
 You need Node 26.12.0, Xcode 27.2, an Apple Developer Program team and a physical iPhone.
 
 1. Copy `.env.example` to `.env`.

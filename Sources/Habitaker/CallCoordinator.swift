@@ -128,7 +128,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             }
         } catch {
             ready = false; pushReady = false
-            message = "Cannot reach your Mac. Keep it awake on the same Wi-Fi, then retry."
+            message = "Cannot reach Hobbit. Check your internet connection, then retry."
             attentionMessage = message
         }
     }
@@ -465,7 +465,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         callDeadline = Task {
             try? await Task.sleep(for: .seconds(40))
             guard !Task.isCancelled else { return }
-            if connecting || ringing { fail("Your pet did not answer. Check Wi-Fi and try again."); return }
+            if connecting || ringing { fail("Your pet did not answer. Check your internet connection and try again."); return }
             try? await Task.sleep(for: .seconds(140))
             guard !Task.isCancelled else { return }
             message = "Your three-minute call has ended. Your progress is saved."
@@ -614,6 +614,9 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         MainActor.assumeIsolated { reportIncoming(payload, completion: completion) }
     }
     private func reportIncoming(_ payload: PKPushPayload, completion: @escaping () -> Void) {
+        VoiceDiagnostics.reset()
+        VoiceDiagnostics.record("incomingWhileLocked", !UIApplication.shared.isProtectedDataAvailable)
+        VoiceDiagnostics.record("incomingInBackground", UIApplication.shared.applicationState == .background)
         let incoming = payload.dictionaryPayload["call_id"] as? String
         let id = incoming.flatMap(UUID.init(uuidString:)) ?? UUID()
         let update = CXCallUpdate()
@@ -657,6 +660,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         MainActor.assumeIsolated {
+        VoiceDiagnostics.record("answeredWhileLocked", !UIApplication.shared.isProtectedDataAvailable)
         do { try configureAudio(); startVoice(); action.fulfill() }
         catch { action.fail(); fail("Audio could not start. Try again.") }
         }

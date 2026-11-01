@@ -26,6 +26,11 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
 
     override init() {
         super.init()
+        restoreSavedSession()
+        if !verified { Task { await refreshIfNeeded() } }
+    }
+
+    private func restoreSavedSession() {
         guard let data = try? Keychain.read("registration"),
               let saved = try? JSONDecoder().decode(Registration.self, from: data) else { return }
         let parts = saved.tokens.id_token.split(separator: ".")
@@ -33,16 +38,14 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
               let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let expiry = claims["exp"] as? Double,
               claims["sub"] as? String == saved.subject else { return }
-        guard expiry > Date().timeIntervalSince1970 + 60 else {
-            Task { await refreshIfNeeded() }
-            return
-        }
+        guard expiry > Date().timeIntervalSince1970 + 60 else { return }
         verified = true
         planEnabled = saved.tokens.scope.split(separator: " ").contains("chatgpt.tokens.use.direct")
         record("identity_verified", "Your saved ChatGPT sign-in is ready.")
     }
 
     func refreshIfNeeded() async {
+        if !verified { restoreSavedSession() }
         guard !busy, let data = try? Keychain.read("registration"),
               let saved = try? JSONDecoder().decode(Registration.self, from: data),
               let previous = Self.claims(saved.tokens.id_token),

@@ -1,5 +1,6 @@
 import https from 'node:https';
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
+import http from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { greetingFor, liveConfiguration, validateHabit } from './domain.mjs';
 import { pushConfigured, sendCallPush } from './apns.mjs';
@@ -7,21 +8,22 @@ import { dayKey, nextCallAt, validateSchedule, validateCompletedDays } from './s
 import { extractHabit, onboardingConfiguration, onboardingGreeting } from './onboarding.mjs';
 import { petPrompt } from './pet-design.mjs';
 import { migrateHabits, updateHabit, updateHabitProgress, nextHabitCall } from './habits.mjs';
+import { runtimeConfiguration, readState, writeState } from './runtime.mjs';
 
-const secret = readFileSync('.local/server-secret', 'utf8').trim();
+const runtime = runtimeConfiguration();
+const secret = runtime.secret;
 const unhingedVoiceID = process.env.OPENAI_UNHINGED_VOICE_ID || (existsSync('.local/drill-voice.json') ? JSON.parse(readFileSync('.local/drill-voice.json', 'utf8')).id : undefined);
-let device = existsSync('.local/device.json') ? JSON.parse(readFileSync('.local/device.json', 'utf8')) : {};
+let device = readState(runtime.dataDirectory, 'device', {});
 const calls = new Map();
 let livePending = false;
 let lastSessionAt = 0;
 let activeVoice;
 let imagePending = false;
-let plans = migrateHabits(existsSync('.local/schedule.json') ? JSON.parse(readFileSync('.local/schedule.json', 'utf8')) : null);
+let plans = migrateHabits(readState(runtime.dataDirectory, 'schedule', null));
 let dailyTimer;
 
 function savePlan() {
-  writeFileSync('.local/schedule.json.tmp', JSON.stringify({ version: 2, plans }), { mode: 0o600 });
-  renameSync('.local/schedule.json.tmp', '.local/schedule.json');
+  writeState(runtime.dataDirectory, 'schedule', { version: 2, plans });
 }
 
 function busyCall() {
@@ -52,7 +54,7 @@ function armDailyCall() {
     if (!current || current.paused) return;
     current.lastAttemptDay = dayKey(due, current.timeZone);
     current.lastError = null;
-    if (Date.now() - due > 60000) current.lastError = 'Your computer was asleep at call time. Try a call now.';
+    if (Date.now() - due > 60000) current.lastError = 'The reminder service missed this call time. Try a call now.';
     else if (!device.token || !pushConfigured()) current.lastError = 'Incoming calls are not ready. Open Hobbit and retry the connection.';
     else if (busyCall()) current.lastError = 'Your daily call was skipped because another call was in progress.';
     savePlan();
@@ -87,7 +89,8 @@ async function readJSON(request) {
   return JSON.parse(content);
 }
 
-const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cert: readFileSync('.local/tls/cert.pem') }, async (request, response) => {
+const handler = async (request, response) => {
+  if (request.method === 'GET' && request.url === '/healthz') return reply(response, 200, { ok: true });
   const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') || '');
   const expected = Buffer.from(secret);
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return reply(response, 401, { error: 'This device is not paired with the Hobbit server.' });
@@ -157,7 +160,7 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       const input = await readJSON(request);
       if (typeof input.token !== 'string' || !/^[a-f0-9]{32,512}$/.test(input.token)) return reply(response, 400, { error: 'Invalid push address.' });
       device = { token: input.token };
-      writeFileSync('.local/device.json', JSON.stringify(device), { mode: 0o600 });
+      writeState(runtime.dataDirectory, 'device', device);
       return reply(response, 200, { registered: true });
     }
     if (request.method === 'POST' && request.url === '/pets') {
@@ -257,8 +260,12 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
   } catch (error) {
     reply(response, 400, { error: error instanceof SyntaxError ? 'Invalid request.' : error.message });
   }
-});
+};
+
+const server = runtime.hosted ? http.createServer(handler) : https.createServer({
+  key: readFileSync('.local/tls/key.pem'), cert: readFileSync('.local/tls/cert.pem')
+}, handler);
 
 server.requestTimeout = 35000;
 armDailyCall();
-server.listen(8787, '0.0.0.0', () => console.log('Hobbit HTTPS server listening on port 8787.'));
+server.listen(runtime.port, '0.0.0.0', () => console.log(`Hobbit listening on port ${runtime.port} (${runtime.hosted ? 'managed HTTPS' : 'local HTTPS'}).`));
