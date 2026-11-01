@@ -135,6 +135,9 @@ final class HobbitUITests: XCTestCase {
         let app = try launchSignedInApp()
         try reachToday(app)
         if app.buttons["Undo today's completion"].exists { try tap(app.buttons["Undo today's completion"], in: app) }
+        if let demoHabit = ProcessInfo.processInfo.environment["HOBBIT_DEMO_HABIT"] {
+            XCTAssertTrue(app.staticTexts[demoHabit].waitForExistence(timeout: 10), "Set the exact demo habit before recording.")
+        }
         try tap(app.buttons["edit-habit"], in: app)
         try tap(app.buttons["mode-unhinged"], in: app)
         if app.alerts["Turn on Unhinged?"].exists { app.alerts.buttons["Use Unhinged"].tap() }
@@ -153,6 +156,7 @@ final class HobbitUITests: XCTestCase {
         try tap(app.buttons["I did it"], in: app)
         XCTAssertTrue(app.staticTexts["You showed up."].waitForExistence(timeout: 10))
         snapshot("Dark completion", app: app)
+        Thread.sleep(forTimeInterval: 4)
         try tap(app.buttons["Undo completion"], in: app)
     }
 

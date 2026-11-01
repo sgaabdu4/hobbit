@@ -6,7 +6,7 @@ The complete journey is pet selection, spoken or typed first-habit setup, editab
 
 Public source: [github.com/sgaabdu4/hobbit](https://github.com/sgaabdu4/hobbit). The Xcode project and bundle identifier retain the earlier Habitaker name to preserve installed sign-in and push registration.
 
-[Watch the 89-second demo](docs/demo.mp4). Three recorded voices, a tiny drill sergeant, real iPhone footage and a complete habit journey. The separate recorded API response is labelled. [Demo notes and live skit](DEMO.md) explain exactly what is shown.
+[Watch the 89-second demo](docs/demo.mp4). A doomscrolling skit, emotional ElevenLabs narration, the OpenAI drill-sergeant voice and the real iPhone app side by side. Ringing leads into the scare, then push-ups play to an original generated training instrumental without narration. The victory earns tumbling confetti and a gold trophy; the app celebrates completion with confetti, a trophy, the actual streak and a success haptic. [Demo notes and live skit](DEMO.md) explain the edit and credits.
 
 <img src="docs/screenshots/pet.png" alt="Choose Pip or create a pet" width="220"> <img src="docs/screenshots/ringing.png" alt="Pip ringing on the iPhone" width="220"> <img src="docs/screenshots/completion.png" alt="Saved habit completion" width="220">
 

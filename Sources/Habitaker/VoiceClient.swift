@@ -17,6 +17,8 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var greeting: String?
     private var lastDiagnostic = Date.distantPast
     private var connectionID: String?
+    private var waitingForGreeting = true
+    private var microphoneMuted = false
 
     func connect(habit: String, mode: String, callID: String?, onboarding: Bool = false) async throws {
         VoiceDiagnostics.record("stage", "preparing_audio")
@@ -28,6 +30,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
         self.peer = peer
         let track = factory.audioTrack(with: factory.audioSource(with: constraints), trackId: "habitaker-mic")
+        track.isEnabled = false
         microphone = track
         peer.add(track, streamIds: ["habitaker-audio"])
         channel = peer.dataChannel(forLabel: "oai-events", configuration: RTCDataChannelConfiguration())
@@ -76,6 +79,10 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
                     guard let report = await self?.peer?.statistics() else { return }
                     let level = report.statistics.values.filter { $0.type == "inbound-rtp" }
                         .compactMap { ($0.values["audioLevel"] as? NSNumber)?.doubleValue }.max() ?? 0
+                    if let self, self.waitingForGreeting, level > 0.008 {
+                        self.waitingForGreeting = false
+                        self.microphone?.isEnabled = !self.microphoneMuted
+                    }
                     self?.onLevel?(level)
                     if let self, Date().timeIntervalSince(self.lastDiagnostic) > 1 {
                         self.lastDiagnostic = Date()
@@ -100,7 +107,10 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         channel?.sendData(RTCDataBuffer(data: data, isBinary: false))
     }
 
-    func mute(_ muted: Bool) { microphone?.isEnabled = !muted }
+    func mute(_ muted: Bool) {
+        microphoneMuted = muted
+        microphone?.isEnabled = !muted && !waitingForGreeting
+    }
 
     func close() {
         releaseConnection()
