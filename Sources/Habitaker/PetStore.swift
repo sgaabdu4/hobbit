@@ -19,6 +19,7 @@ final class PetStore: ObservableObject {
     private var customColumns: Int { UserDefaults.standard.integer(forKey: "customPetColumns") == 4 ? 4 : 2 }
 
     init() { custom = UIImage(contentsOfFile: imageURL.path) }
+    var usesCustomPet: Bool { UserDefaults.standard.bool(forKey: "useCustomPet") && custom != nil }
 
     func generate(_ description: String) async {
         guard !busy else { return }
@@ -85,7 +86,7 @@ final class PetStore: ObservableObject {
     }
 
     func animatedFrame(mood: PetMood, mouth: Int, blinking: Bool, expression: String, previewing: Bool = false) -> UIImage? {
-        let useCustom = UserDefaults.standard.bool(forKey: "useCustomPet") && custom != nil
+        let useCustom = usesCustomPet
         let sheet = previewing && preview != nil ? preview : useCustom ? custom : defaultSheet ?? legacySheet
         let columns = previewing && preview != nil ? previewColumns : useCustom ? customColumns : defaultSheet == nil ? 2 : 4
         guard let cg = sheet?.cgImage else { return UIImage(named: "pip") }

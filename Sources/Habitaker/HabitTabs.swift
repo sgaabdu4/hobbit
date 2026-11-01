@@ -60,7 +60,7 @@ struct CompactTodayView: View {
                         .disabled(index + 1 >= calls.records.count || calls.scheduledID != nil).accessibilityLabel("Next habit")
                 } }
                 PetView(pets: pets, expression: calls.completed ? "happy" : "attentive", mode: calls.mode)
-                    .frame(height: max(70, min(210, geometry.size.height - (calls.records.count > 1 ? 440 : 390))))
+                    .frame(height: max(70, min(210, geometry.size.height - (calls.records.count > 1 ? 440 : 390) - (calls.attentionMessage.isEmpty ? 0 : 65))))
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(calls.record?.paused == true ? "CALLS PAUSED" : calls.completed ? "DONE TODAY" : calls.mode.uppercased())
@@ -72,13 +72,17 @@ struct CompactTodayView: View {
                     if let date = calls.nextCall {
                         Label("Next call \(date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))", systemImage: "phone.arrow.down.left")
                             .font(HobbitFont.body(13)).foregroundStyle(HobbitStyle.muted)
-                    } else {
+                    } else if calls.record?.paused == true {
                         Text("Calls paused. Change this in Habits.").font(HobbitFont.body(13)).foregroundStyle(HobbitStyle.muted)
                     }
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
                     .background(HobbitStyle.panel, in: RoundedRectangle(cornerRadius: 24))
                     .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(HobbitStyle.line, lineWidth: 1))
                 Spacer(minLength: 0)
+                if !calls.attentionMessage.isEmpty {
+                    Text(calls.attentionMessage).font(HobbitFont.body(13)).foregroundStyle(HobbitStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("call-feedback")
+                }
                 if calls.scheduledID != nil {
                     Text("Your pet will ring shortly.").font(HobbitFont.body(14))
                     HobbitButton(title: "Cancel call") { Task { await calls.cancelScheduled() } }

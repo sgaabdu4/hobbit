@@ -6,7 +6,7 @@ final class Backend: NSObject, URLSessionDelegate {
     private struct Configuration: Decodable {
         let serverURL: URL
         let deviceSecret: String
-        let certificate: Data
+        let certificate: Data?
     }
     private let configuration: Configuration?
     private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
@@ -19,7 +19,7 @@ final class Backend: NSObject, URLSessionDelegate {
     }
 
     func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
-        guard let configuration else { throw AuthFailure.invalid("This build is not paired with a server. Run the device setup and rebuild.") }
+        guard let configuration, configuration.serverURL.scheme == "https" else { throw AuthFailure.invalid("This build is not paired with a secure server. Run the device setup and rebuild.") }
         var request = URLRequest(url: configuration.serverURL.appendingPathComponent(path))
         request.httpMethod = method
         request.timeoutInterval = path == "pets" ? 190 : 35
@@ -57,9 +57,16 @@ final class Backend: NSObject, URLSessionDelegate {
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let configuration, challenge.protectionSpace.host == configuration.serverURL.host,
-              let trust = challenge.protectionSpace.serverTrust,
-              let pinned = SecCertificateCreateWithData(nil, configuration.certificate as CFData) else {
+              let trust = challenge.protectionSpace.serverTrust else {
             reportTrust(stage: "challenge_rejected", code: 0)
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        guard let certificate = configuration.certificate else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        guard let pinned = SecCertificateCreateWithData(nil, certificate as CFData) else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
@@ -72,7 +79,7 @@ final class Backend: NSObject, URLSessionDelegate {
             return
         }
         guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
-              SecCertificateCopyData(leaf) as Data == configuration.certificate else {
+              SecCertificateCopyData(leaf) as Data == certificate else {
             reportTrust(stage: "certificate_pin_mismatch", code: 0)
             completionHandler(.cancelAuthenticationChallenge, nil)
             return

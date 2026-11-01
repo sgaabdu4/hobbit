@@ -8,7 +8,7 @@
     "prepare:device": "node server/prepare-dev.mjs",
     "create:voice": "node --env-file=.env scripts/create-drill-voice.mjs",
     "demo:call": "node scripts/demo-call.mjs",
-    "start": "node --env-file=.env server/server.mjs",
+    "start": "node --env-file-if-exists=.env server/server.mjs",
     "test": "node --test server/*.test.mjs"
   }
 }

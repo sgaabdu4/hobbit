@@ -20,7 +20,18 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var waitingForGreeting = true
     private var microphoneMuted = false
 
+    static func recoverInterruptedConnection() async throws {
+        if let interruptedID = UserDefaults.standard.string(forKey: "pendingVoiceConnectionID") {
+            _ = try await Backend.shared.request("voice/" + interruptedID, method: "DELETE")
+            if UserDefaults.standard.string(forKey: "pendingVoiceConnectionID") == interruptedID {
+                UserDefaults.standard.removeObject(forKey: "pendingVoiceConnectionID")
+            }
+        }
+    }
+
     func connect(habit: String, mode: String, callID: String?, onboarding: Bool = false) async throws {
+        try await Self.recoverInterruptedConnection()
+        try Task.checkCancellation()
         VoiceDiagnostics.record("stage", "preparing_audio")
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -53,7 +64,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
         try Task.checkCancellation()
         guard peer.iceGatheringState == .complete, let sdp = peer.localDescription?.sdp else {
-            throw AuthFailure.invalid("The network could not prepare this call. Try another Wi-Fi network.")
+            throw AuthFailure.invalid("The network could not prepare this call. Try mobile data or another Wi-Fi network.")
         }
         var body: [String: Any] = ["sdp": sdp, "habit": habit, "mode": mode]
         if onboarding { body["purpose"] = "onboarding" }
@@ -61,6 +72,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         VoiceDiagnostics.record("stage", "requesting_session")
         let response = try await Backend.shared.request("voice", method: "POST", body: body)
         connectionID = response["connectionID"] as? String
+        if let connectionID { UserDefaults.standard.set(connectionID, forKey: "pendingVoiceConnectionID") }
         if Task.isCancelled { releaseConnection(); throw CancellationError() }
         VoiceDiagnostics.record("stage", "session_created")
         greeting = response["greeting"] as? String
@@ -73,6 +85,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             }
         }
+        try Task.checkCancellation()
         await MainActor.run {
             self.meter = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
                 Task { @MainActor in
@@ -128,7 +141,14 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private func releaseConnection() {
         guard let id = connectionID else { return }
         connectionID = nil
-        Task { _ = try? await Backend.shared.request("voice/" + id, method: "DELETE") }
+        Task {
+            do {
+                _ = try await Backend.shared.request("voice/" + id, method: "DELETE")
+                if UserDefaults.standard.string(forKey: "pendingVoiceConnectionID") == id {
+                    UserDefaults.standard.removeObject(forKey: "pendingVoiceConnectionID")
+                }
+            } catch { VoiceDiagnostics.record("connectionCleanupPending", true) }
+        }
     }
 
     private func shutdown() {

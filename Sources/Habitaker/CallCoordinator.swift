@@ -11,6 +11,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     @Published var habit = UserDefaults.standard.string(forKey: "habit") ?? "Stretch for two minutes"
     @Published var mode = UserDefaults.standard.string(forKey: "mode") ?? "Gentle"
     @Published var message = ""
+    @Published var attentionMessage = ""
     @Published var active = false
     @Published var connecting = false
     @Published var ending = false
@@ -104,10 +105,13 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     func refresh() async {
         if let record { completed = record.isCompleted() }
+        let wasReady = ready
         do {
+            if !active && !connecting && callUUID == nil { try await VoiceClient.recoverInterruptedConnection() }
             if let token { _ = try await Backend.shared.request("device", method: "POST", body: ["token": token]) }
             let health = try await Backend.shared.request("health")
             ready = health["voiceReady"] as? Bool == true
+            if ready && !wasReady { attentionMessage = "" }
             pushReady = health["pushReady"] as? Bool == true && health["deviceRegistered"] as? Bool == true
             if !pendingHabitIDs.isEmpty { await syncProgress() }
             applyHabits(try await Backend.shared.request("habits"))
@@ -118,23 +122,36 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
                     message = call["error"] as? String ?? "The call has ended. You can try again."
                 }
             }
-            if !ready { message = "Voice setup is incomplete on the server. Retry after setup." }
-        } catch { ready = false; pushReady = false; message = "Cannot reach your Mac. Keep it awake on the same Wi-Fi, then retry." }
+            if !ready {
+                message = "Voice setup is incomplete on the server. Retry after setup."
+                attentionMessage = message
+            }
+        } catch {
+            ready = false; pushReady = false
+            message = "Cannot reach Hobbit. Check your internet connection, then retry."
+            attentionMessage = message
+        }
     }
 
-    func savePlan(habit: String, mode: String, time: Date, paused: Bool = false, adding: Bool = false) async -> Bool {
+    func savePlan(habit: String, mode: String, time: Date, paused: Bool = false, adding: Bool = false, timeZone: TimeZone = .current) async -> Bool {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.hour, .minute], from: time)
+        let id = adding ? UUID().uuidString : record?.id ?? UUID().uuidString
+        let draft = HabitRecord(id: id, habit: habit.trimmingCharacters(in: .whitespacesAndNewlines), mode: mode,
+                               hour: parts.hour ?? 15, minute: parts.minute ?? 0, timeZone: timeZone.identifier, paused: paused,
+                               completedDays: adding ? [] : record?.completedDays ?? [])
+        return await savePlan(draft)
+    }
+
+    private func savePlan(_ draft: HabitRecord) async -> Bool {
         guard !saving else { return false }
         saving = true
         defer { saving = false }
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
-        let id = adding ? UUID().uuidString : record?.id ?? UUID().uuidString
-        let draft = HabitRecord(id: id, habit: habit.trimmingCharacters(in: .whitespacesAndNewlines), mode: mode,
-                               hour: parts.hour ?? 15, minute: parts.minute ?? 0, paused: paused,
-                               completedDays: adding ? [] : record?.completedDays ?? [])
         do {
-            let result = try await Backend.shared.request("habits/" + id, method: "PUT", body: [
+            let result = try await Backend.shared.request("habits/" + draft.id, method: "PUT", body: [
                 "habit": draft.habit, "mode": draft.mode, "hour": draft.hour, "minute": draft.minute,
-                "timeZone": draft.timeZone, "paused": paused
+                "timeZone": draft.timeZone, "paused": draft.paused
             ])
             record = draft
             self.habit = draft.habit
@@ -142,17 +159,15 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             saveHabit()
             persistRecord()
             applyHabits(result)
-            message = paused ? "Daily calls are paused. Resume whenever you're ready." : "Daily call saved. Your pet will ring at the time you chose."
+            message = draft.paused ? "Daily calls are paused. Resume whenever you're ready." : "Daily call saved. Your pet will ring at the time you chose."
             return true
         } catch { message = error.localizedDescription; return false }
     }
 
     func togglePause() async {
-        guard let record else { return }
-        var calendar = Calendar.current
-        calendar.timeZone = TimeZone(identifier: record.timeZone) ?? .current
-        let time = calendar.date(bySettingHour: record.hour, minute: record.minute, second: 0, of: Date()) ?? Date()
-        _ = await savePlan(habit: record.habit, mode: record.mode, time: time, paused: !record.paused)
+        guard var draft = record else { return }
+        draft.paused.toggle()
+        _ = await savePlan(draft)
     }
 
     private func persistRecord() {
@@ -174,6 +189,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         applySelection(records.first { $0.id == id })
         showingCelebration = false
         message = ""
+        attentionMessage = ""
     }
 
     private func applySelection(_ selected: HabitRecord?) {
@@ -199,7 +215,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             if pendingHabitIDs.contains(value.id), let local = records.first(where: { $0.id == value.id }) { value.completedDays = local.completedDays }
             saved.append(value)
             if let next = entry["nextCallAt"] as? Double { dates[value.id] = Date(timeIntervalSince1970: next / 1000) }
-            if value.id == selectedID, let error = plan["lastError"] as? String { message = error }
+            if value.id == selectedID, let error = plan["lastError"] as? String {
+                message = error
+                attentionMessage = error
+            }
         }
         records = saved
         nextCalls = dates
@@ -241,8 +260,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
                 let result = try await Backend.shared.request("habits/" + id + "/progress", method: "PUT", body: ["completedDays": snapshot.completedDays])
                 if records.first(where: { $0.id == id })?.completedDays == snapshot.completedDays { pendingHabitIDs.remove(id) }
                 applyHabits(result)
+                if attentionMessage == "Progress saved on this iPhone. Reconnect to update your next call." { attentionMessage = "" }
             } catch {
                 message = "Progress saved on this iPhone. Reconnect to update your next call."
+                attentionMessage = message
                 break
             }
         }
@@ -257,7 +278,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     private func permission() async -> Bool {
         let granted = await AVAudioApplication.requestRecordPermission()
-        if !granted { message = "Microphone access is off. Enable it in iPhone Settings to talk with your pet." }
+        if !granted {
+            message = "Microphone access is off. Enable it in iPhone Settings to talk with your pet."
+            attentionMessage = message
+        }
         return granted
     }
 
@@ -265,6 +289,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         guard !actionBusy, !active, !connecting, callUUID == nil, scheduledID == nil, !habit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actionBusy = true
         defer { actionBusy = false }
+        attentionMessage = ""
         guard await permission() else { return }
         saveHabit()
         let id = UUID()
@@ -273,7 +298,11 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         connecting = true
         do {
             try await controller.request(CXTransaction(action: CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: "Hobbit pet"))))
-        } catch { connecting = false; callUUID = nil; message = "iPhone could not start the call. Try again." }
+        } catch {
+            connecting = false; callUUID = nil
+            message = "iPhone could not start the call. Try again."
+            attentionMessage = message
+        }
     }
 
     func beginOnboarding() async {
@@ -436,7 +465,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         callDeadline = Task {
             try? await Task.sleep(for: .seconds(40))
             guard !Task.isCancelled else { return }
-            if connecting || ringing { fail("Your pet did not answer. Check Wi-Fi and try again."); return }
+            if connecting || ringing { fail("Your pet did not answer. Check your internet connection and try again."); return }
             try? await Task.sleep(for: .seconds(140))
             guard !Task.isCancelled else { return }
             message = "Your three-minute call has ended. Your progress is saved."
@@ -447,6 +476,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     private func fail(_ message: String) {
         VoiceDiagnostics.record("stage", "failed")
         self.message = message
+        attentionMessage = message
         if let id = callUUID { provider.reportCall(with: id, endedAt: Date(), reason: .failed) }
         finish()
     }
@@ -510,7 +540,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             if incomingID == nil, let id = callUUID { provider.reportOutgoingCall(with: id, connectedAt: Date()) }
         } else if type == "session.closed" {
             if active { end() }
-        } else if type == "error" { fail("Voice hit a problem. End the call and try again.") }
+        } else if type == "error" { fail("The voice connection failed. Try calling again.") }
         else if type == "session.delegation.created", let delegation = event["delegation"] as? [String: Any], let id = delegation["id"] as? String {
             delegations.insert(id)
         } else if type.hasSuffix("transcript.delta"), let id = event["event_id"] as? String {
@@ -531,6 +561,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             if let delegation = event["delegation_id"] as? String, delegations.contains(delegation), !handled.contains(delegation) {
                 handled.insert(delegation)
                 let action = answers.first { $0["name"] as? String == "habit_action" }?["choice"] as? String
+                VoiceDiagnostics.record("delegatedHabitAction", action ?? "none")
                 if action == "stop" { sayGoodbyeAndEnd(); return }
                 if action == "completed" { markCompleted(true); sayGoodbyeAndEnd(); return }
                 let result = action == "completed" ? "Habit completion was saved on this iPhone." : action == "starting" ? "The user is starting. The habit is not yet marked complete." : "No habit change was made."
@@ -554,12 +585,14 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         inputRevision += 1
         completionTask?.cancel()
         guard completionTranscript.range(of: #"\b(did|done|finished|completed)\b"#, options: [.regularExpression, .caseInsensitive]) != nil else { return }
+        VoiceDiagnostics.record("completionCandidateSeen", true)
         let transcript = completionTranscript
         let revision = inputRevision
         let habitID = record?.id
         completionTask = Task {
             do {
                 try await Task.sleep(for: .milliseconds(1000))
+                VoiceDiagnostics.record("completionCheckStarted", true)
                 let result = try await Backend.shared.request("habit-action", method: "POST", body: ["habit": habit, "mode": mode, "transcript": transcript])
                 guard !Task.isCancelled, active, !ending, record?.id == habitID, inputRevision == revision else { return }
                 VoiceDiagnostics.record("spokenCompletionDecision", result["action"] as? String ?? "none")
@@ -581,6 +614,9 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         MainActor.assumeIsolated { reportIncoming(payload, completion: completion) }
     }
     private func reportIncoming(_ payload: PKPushPayload, completion: @escaping () -> Void) {
+        VoiceDiagnostics.reset()
+        VoiceDiagnostics.record("incomingWhileLocked", !UIApplication.shared.isProtectedDataAvailable)
+        VoiceDiagnostics.record("incomingInBackground", UIApplication.shared.applicationState == .background)
         let incoming = payload.dictionaryPayload["call_id"] as? String
         let id = incoming.flatMap(UUID.init(uuidString:)) ?? UUID()
         let update = CXCallUpdate()
@@ -624,6 +660,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         MainActor.assumeIsolated {
+        VoiceDiagnostics.record("answeredWhileLocked", !UIApplication.shared.isProtectedDataAvailable)
         do { try configureAudio(); startVoice(); action.fulfill() }
         catch { action.fail(); fail("Audio could not start. Try again.") }
         }

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { sign } from 'node:crypto';
 
 export function pushConfigured(env = process.env) {
-  return Boolean(env.APNS_KEY_FILE && env.APNS_KEY_ID && env.APNS_TEAM_ID);
+  return Boolean((env.APNS_KEY_FILE || env.APNS_KEY_P8) && env.APNS_KEY_ID && env.APNS_TEAM_ID);
 }
 
 export async function sendCallPush(token, callID, env = process.env) {
@@ -12,7 +12,7 @@ export async function sendCallPush(token, callID, env = process.env) {
   const body = Buffer.from(JSON.stringify({ iss: env.APNS_TEAM_ID, iat: Math.floor(Date.now() / 1000) })).toString('base64url');
   const message = `${head}.${body}`;
   const signature = sign('sha256', Buffer.from(message), {
-    key: readFileSync(env.APNS_KEY_FILE), dsaEncoding: 'ieee-p1363'
+    key: env.APNS_KEY_P8 || readFileSync(env.APNS_KEY_FILE), dsaEncoding: 'ieee-p1363'
   }).toString('base64url');
   const host = env.APNS_ENVIRONMENT === 'production' ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
   await new Promise((resolve, reject) => {
