@@ -52,7 +52,9 @@ On 1 November, GitHub Actions deployed the server to an existing always-on host.
 
 The hosted server runs as a non-root container with automatic restart, a read-only root filesystem and a 384 MB memory limit. The temporary deployment runner and its restricted SSH access were removed after the job. Deployment: [GitHub Actions run](https://github.com/sgaabdu4/hobbit/actions/runs/41334536966).
 
-The hosted changes passed 14 server tests, 15 Swift tests and native Xcode analysis. A device call report confirmed receipt while protected data was unavailable and the app was in the background. The answer-and-audio check is still pending. The build with the hosted address installed on retry, but iOS refused foreground launch while the phone was locked. Mobile-data verification is also pending. These results do not yet prove the full hosted iPhone journey.
+The hosted changes passed 14 server tests, 15 Swift tests and native Xcode analysis. The build with the hosted address installed on retry and opened after the phone was unlocked. With the Mac server stopped, the phone connected to the hosted API and answered a hosted incoming call. Its report recorded microphone and loudspeaker audio, saved completion, a closing line, and the system call ending after that line. The user also confirmed hearing the pet and its goodbye.
+
+An earlier device report confirmed receipt while protected data was unavailable and the app was in the background. The hosted call above arrived and was answered while the phone was unlocked. It does not prove locked answer-and-audio. That check and mobile-data verification remain pending.
 
 See [hosted setup](HOSTING.md). The Mac-dependent limits above describe the earlier development setup.
 
