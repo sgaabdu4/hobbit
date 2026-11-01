@@ -1,0 +1,9 @@
+Use case: identity-preserve
+Asset type: 2 by 2 sprite-state atlas for the Habitaker iPhone app.
+Input image 1 is the character reference. Preserve this exact teal plush owl, cream facial disc and belly, orange beak and feet, proportions and tactile texture.
+Create precisely four full-body copies in an exact 2 by 2 grid, with four equal square cells. Every owl is centered within its cell at the same scale with its feet on the same baseline, filling at most 75 percent of the cell. Generous empty gutters prevent cropping. Each copy must be entirely contained in its cell.
+Top left: attentive neutral, eyes open, beak closed.
+Top right: speaking, eyes open, beak open showing a small dark inner mouth.
+Bottom left: thinking with a gentle head tilt and one wing under its chin.
+Bottom right: celebrating with both wings raised and delighted curved eyes.
+Genuinely transparent alpha background. Remove ALL background haze and colored glow from the reference. No floor, no shadow, no gradients outside the character, no black background, no grid lines, no lettering, no watermark.

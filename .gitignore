@@ -1,0 +1,15 @@
+.build/
+build/
+.local/
+.env
+.env.*
+!.env.example
+*.xcuserstate
+xcuserdata/
+*.mobileprovision
+*.p12
+*.p8
+*.pem
+verification.json
+.DS_Store
+Sources/Habitaker/Resources/DevelopmentConfig.json

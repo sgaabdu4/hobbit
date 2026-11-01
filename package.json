@@ -1,0 +1,12 @@
+{
+  "name": "habitaker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=24 <27" },
+  "scripts": {
+    "prepare:device": "node server/prepare-dev.mjs",
+    "start": "node --env-file=.env server/server.mjs",
+    "test": "node --test server/*.test.mjs"
+  }
+}
