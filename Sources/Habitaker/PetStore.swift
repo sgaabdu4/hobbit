@@ -41,6 +41,13 @@ final class PetStore: ObservableObject {
         chosen = true
     }
 
+    func chooseSavedCustom() {
+        guard custom != nil else { return }
+        UserDefaults.standard.set(true, forKey: "useCustomPet")
+        UserDefaults.standard.set(true, forKey: "petChosen")
+        chosen = true
+    }
+
     func chooseCustom() -> Bool {
         guard let preview, let data = preview.pngData() else { return false }
         do {

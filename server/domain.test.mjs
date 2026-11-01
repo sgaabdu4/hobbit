@@ -16,7 +16,7 @@ test('unknown intensity cannot silently enable stronger coaching', () => {
 test('cosmetic decisions cannot complete a habit', () => {
   const config = liveConfiguration({ habit: 'Stretch', mode: 'Gentle' });
   for (const trigger of config.triggers) {
-    assert.deepEqual(trigger.decisions.questions.map(q => q.name), ['expression']);
+    assert.deepEqual(trigger.decisions.questions.map(q => q.name), trigger.event_type === 'session.input_transcript.delta' ? ['expression', 'call_control'] : ['expression']);
     assert.equal(trigger.decisions.questions.some(q => q.choices.some(c => c.value === 'completed')), false);
   }
 });

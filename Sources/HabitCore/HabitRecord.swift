@@ -1,6 +1,7 @@
 import Foundation
 
-public struct HabitRecord: Codable, Equatable, Sendable {
+public struct HabitRecord: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
     public var habit: String
     public var mode: String
     public var hour: Int
@@ -9,7 +10,8 @@ public struct HabitRecord: Codable, Equatable, Sendable {
     public var paused: Bool
     public var completedDays: [String]
 
-    public init(habit: String, mode: String, hour: Int = 15, minute: Int = 0, timeZone: String = TimeZone.current.identifier, paused: Bool = false, completedDays: [String] = []) {
+    public init(id: String = UUID().uuidString, habit: String, mode: String, hour: Int = 15, minute: Int = 0, timeZone: String = TimeZone.current.identifier, paused: Bool = false, completedDays: [String] = []) {
+        self.id = id
         self.habit = habit
         self.mode = mode
         self.hour = hour
@@ -17,6 +19,20 @@ public struct HabitRecord: Codable, Equatable, Sendable {
         self.timeZone = timeZone
         self.paused = paused
         self.completedDays = completedDays
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, habit, mode, hour, minute, timeZone, paused, completedDays }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(String.self, forKey: .id) ?? "legacy"
+        habit = try values.decode(String.self, forKey: .habit)
+        mode = try values.decode(String.self, forKey: .mode)
+        hour = try values.decode(Int.self, forKey: .hour)
+        minute = try values.decode(Int.self, forKey: .minute)
+        timeZone = try values.decode(String.self, forKey: .timeZone)
+        paused = try values.decode(Bool.self, forKey: .paused)
+        completedDays = try values.decode([String].self, forKey: .completedDays)
     }
 
     public var calendar: Calendar {

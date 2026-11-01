@@ -7,6 +7,7 @@ struct AnimatedPetView: View {
     var mode = "Gentle"
     var previewing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("quietPetMotion") private var quietMotion = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var envelope = SpeechEnvelope()
     @State private var appeared = Date()
@@ -19,7 +20,8 @@ struct AnimatedPetView: View {
             let amount = envelope.value(at: context.date)
             let mouth = envelope.mouth(at: context.date)
             let blinkPhase = seconds.truncatingRemainder(dividingBy: 5.3)
-            let blinking = !reduceMotion && mouth == 0 && ((blinkPhase > 3.8 && blinkPhase < 3.94) || (blinkPhase > 4.12 && blinkPhase < 4.23))
+            let still = reduceMotion || quietMotion
+            let blinking = !still && mouth == 0 && ((blinkPhase > 3.8 && blinkPhase < 3.94) || (blinkPhase > 4.12 && blinkPhase < 4.23))
             let motion = movement(at: seconds, amount: amount)
             Group {
                 if let image = pets.animatedFrame(mood: mood, mouth: mouth, blinking: blinking, expression: expression, previewing: previewing) {
@@ -28,9 +30,9 @@ struct AnimatedPetView: View {
                     Image(systemName: "pawprint.fill").resizable().scaledToFit().foregroundStyle(HobbitStyle.orange).padding(60)
                 }
             }
-            .scaleEffect(x: reduceMotion ? 1 : motion.scaleX, y: reduceMotion ? 1 : motion.scaleY, anchor: .bottom)
-            .rotationEffect(.degrees(reduceMotion ? 0 : motion.rotation), anchor: .bottom)
-            .offset(x: reduceMotion ? 0 : motion.x, y: reduceMotion ? 0 : motion.y)
+            .scaleEffect(x: still ? 1 : motion.scaleX, y: still ? 1 : motion.scaleY, anchor: .bottom)
+            .rotationEffect(.degrees(still ? 0 : motion.rotation), anchor: .bottom)
+            .offset(x: still ? 0 : motion.x, y: still ? 0 : motion.y)
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .ignore)

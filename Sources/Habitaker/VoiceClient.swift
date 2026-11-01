@@ -105,6 +105,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     func close() {
         releaseConnection()
         microphone?.isEnabled = false
+        for receiver in peer?.receivers ?? [] { receiver.track?.isEnabled = false }
         meter?.invalidate()
         if sessionStarted, channel?.readyState == .open {
             send(["type": "session.close"])

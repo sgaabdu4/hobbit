@@ -11,6 +11,8 @@ const cases = [
   ['I am tired.', 'none'],
   ['Stop pushing me. Leave me alone.', 'stop'],
   ['End the call now.', 'stop'],
+  ['Hang up the call.', 'stop'],
+  ["Don't hang up. I am still here.", 'none'],
   ['I finished my two minutes of stretching.', 'completed']
 ];
 for (const [input, expected] of cases) {

@@ -6,13 +6,14 @@ import UIKit
 import WebRTC
 
 @MainActor
-final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate, CXProviderDelegate {
+final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate, CXProviderDelegate, CXCallObserverDelegate {
     static let shared = CallCoordinator()
     @Published var habit = UserDefaults.standard.string(forKey: "habit") ?? "Stretch for two minutes"
     @Published var mode = UserDefaults.standard.string(forKey: "mode") ?? "Gentle"
-    @Published var message = "One small habit. A pet to help you start."
+    @Published var message = ""
     @Published var active = false
     @Published var connecting = false
+    @Published var ending = false
     @Published var ready = false
     @Published var pushReady = false
     @Published var muted = false
@@ -22,6 +23,8 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     @Published var audioLevel = 0.0
     @Published var scheduledID: String?
     @Published var record: HabitRecord?
+    @Published var records: [HabitRecord] = []
+    @Published var nextCalls: [String: Date] = [:]
     @Published var saving = false
     @Published var actionBusy = false
     @Published var nextCall: Date?
@@ -35,6 +38,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     @Published var draftDefaultTime = false
     private var userTranscript = ""
     private var progressPending = UserDefaults.standard.bool(forKey: "progressPending")
+    private var pendingHabitIDs = Set(UserDefaults.standard.stringArray(forKey: "pendingHabitIDs") ?? [])
     private var syncingProgress = false
     private let provider = CXProvider(configuration: {
         let config = CXProviderConfiguration()
@@ -51,6 +55,12 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     private var audioRouteObserver: NSObjectProtocol?
     private var token: String?
     private var callUUID: UUID?
+    private var endingCallID: UUID?
+    private var stopCommand = VoiceStopCommand()
+    private var completionTask: Task<Void, Never>?
+    private var completionTranscript = ""
+    private var lastInputEnd = 0
+    private var inputRevision = 0
     private var incomingID: String?
     private var voice: VoiceClient?
     private var connectionTask: Task<Void, Never>?
@@ -62,15 +72,22 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     private var sequence = 0
     private var pendingCommentary: [String: (String, String)] = [:]
     private let ringback = Ringback()
+    private let farewell = FarewellPlayer()
     @Published private(set) var ringing = false
 
     override init() {
         super.init()
-        if let data = UserDefaults.standard.data(forKey: "habitRecord") {
-            record = try? JSONDecoder().decode(HabitRecord.self, from: data)
-            if let record { habit = record.habit; mode = record.mode; completed = record.isCompleted() }
+        if let data = UserDefaults.standard.data(forKey: "habitRecords"),
+           let saved = try? JSONDecoder().decode([HabitRecord].self, from: data) {
+            records = saved
+        } else if let data = UserDefaults.standard.data(forKey: "habitRecord"),
+                  let saved = try? JSONDecoder().decode(HabitRecord.self, from: data) {
+            records = [saved]
         }
+        if progressPending, pendingHabitIDs.isEmpty, let first = records.first { pendingHabitIDs.insert(first.id) }
+        applySelection(records.first { $0.id == UserDefaults.standard.string(forKey: "selectedHabitID") } ?? records.first)
         provider.setDelegate(self, queue: .main)
+        controller.callObserver.setDelegate(self, queue: .main)
         let configuration = RTCAudioSessionConfiguration.webRTC()
         configuration.categoryOptions = [.allowBluetoothHFP, .defaultToSpeaker]
         RTCAudioSessionConfiguration.setWebRTC(configuration)
@@ -92,8 +109,8 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             let health = try await Backend.shared.request("health")
             ready = health["voiceReady"] as? Bool == true
             pushReady = health["pushReady"] as? Bool == true && health["deviceRegistered"] as? Bool == true
-            if progressPending { await syncProgress() }
-            if record != nil { applySchedule(try await Backend.shared.request("schedule")) }
+            if !pendingHabitIDs.isEmpty { await syncProgress() }
+            applyHabits(try await Backend.shared.request("habits"))
             if let id = scheduledID {
                 let call = try await Backend.shared.request("calls/" + id)
                 if ["failed", "missed", "ended"].contains(call["status"] as? String ?? "") {
@@ -105,16 +122,17 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         } catch { ready = false; pushReady = false; message = "Cannot reach your Mac. Keep it awake on the same Wi-Fi, then retry." }
     }
 
-    func savePlan(habit: String, mode: String, time: Date, paused: Bool = false) async -> Bool {
+    func savePlan(habit: String, mode: String, time: Date, paused: Bool = false, adding: Bool = false) async -> Bool {
         guard !saving else { return false }
         saving = true
         defer { saving = false }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
-        let draft = HabitRecord(habit: habit.trimmingCharacters(in: .whitespacesAndNewlines), mode: mode,
+        let id = adding ? UUID().uuidString : record?.id ?? UUID().uuidString
+        let draft = HabitRecord(id: id, habit: habit.trimmingCharacters(in: .whitespacesAndNewlines), mode: mode,
                                hour: parts.hour ?? 15, minute: parts.minute ?? 0, paused: paused,
-                               completedDays: record?.completedDays ?? [])
+                               completedDays: adding ? [] : record?.completedDays ?? [])
         do {
-            let result = try await Backend.shared.request("schedule", method: "PUT", body: [
+            let result = try await Backend.shared.request("habits/" + id, method: "PUT", body: [
                 "habit": draft.habit, "mode": draft.mode, "hour": draft.hour, "minute": draft.minute,
                 "timeZone": draft.timeZone, "paused": paused
             ])
@@ -123,9 +141,8 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
             self.mode = draft.mode
             saveHabit()
             persistRecord()
-            applySchedule(result)
+            applyHabits(result)
             message = paused ? "Daily calls are paused. Resume whenever you're ready." : "Daily call saved. Your pet will ring at the time you chose."
-            await syncProgress()
             return true
         } catch { message = error.localizedDescription; return false }
     }
@@ -139,31 +156,97 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
 
     private func persistRecord() {
-        if let record, let data = try? JSONEncoder().encode(record) { UserDefaults.standard.set(data, forKey: "habitRecord") }
+        if let record {
+            if let index = records.firstIndex(where: { $0.id == record.id }) { records[index] = record }
+            else { records.append(record) }
+        }
+        persistHabits()
     }
 
-    private func applySchedule(_ result: [String: Any]) {
-        nextCall = (result["nextCallAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-        if let plan = result["plan"] as? [String: Any], let error = plan["lastError"] as? String { message = error }
+    private func persistHabits() {
+        if let data = try? JSONEncoder().encode(records) { UserDefaults.standard.set(data, forKey: "habitRecords") }
+        UserDefaults.standard.set(Array(pendingHabitIDs), forKey: "pendingHabitIDs")
+        UserDefaults.standard.set(!pendingHabitIDs.isEmpty, forKey: "progressPending")
+    }
+
+    func selectHabit(_ id: String) {
+        guard !active, !connecting, scheduledID == nil, !saving else { return }
+        applySelection(records.first { $0.id == id })
+        showingCelebration = false
+        message = ""
+    }
+
+    private func applySelection(_ selected: HabitRecord?) {
+        record = selected
+        if let selected {
+            habit = selected.habit
+            mode = selected.mode
+            completed = selected.isCompleted()
+            nextCall = nextCalls[selected.id]
+            UserDefaults.standard.set(selected.id, forKey: "selectedHabitID")
+        } else { completed = false; nextCall = nil }
+        expression = completed ? "happy" : "attentive"
+    }
+
+    private func applyHabits(_ result: [String: Any]) {
+        guard let entries = result["habits"] as? [[String: Any]] else { return }
+        let selectedID = record?.id
+        var saved: [HabitRecord] = []
+        var dates: [String: Date] = [:]
+        for entry in entries {
+            guard let plan = entry["plan"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: plan),
+                  var value = try? JSONDecoder().decode(HabitRecord.self, from: data) else { continue }
+            if pendingHabitIDs.contains(value.id), let local = records.first(where: { $0.id == value.id }) { value.completedDays = local.completedDays }
+            saved.append(value)
+            if let next = entry["nextCallAt"] as? Double { dates[value.id] = Date(timeIntervalSince1970: next / 1000) }
+            if value.id == selectedID, let error = plan["lastError"] as? String { message = error }
+        }
+        records = saved
+        nextCalls = dates
+        applySelection(saved.first { $0.id == selectedID } ?? saved.first)
+        persistHabits()
+    }
+
+    func deleteHabit(_ id: String) async -> Bool {
+        guard !saving else { return false }
+        saving = true
+        defer { saving = false }
+        do {
+            let result = try await Backend.shared.request("habits/" + id, method: "DELETE")
+            pendingHabitIDs.remove(id)
+            applyHabits(result)
+            showingCelebration = false
+            message = "Habit removed. Your other habits are unchanged."
+            return true
+        } catch { message = error.localizedDescription; return false }
+    }
+
+    func pauseAll(_ paused: Bool) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            applyHabits(try await Backend.shared.request("habits/pause", method: "PUT", body: ["paused": paused]))
+            message = paused ? "All daily calls paused. Resume them here." : "Daily calls resumed at your saved times."
+        } catch { message = error.localizedDescription }
     }
 
     private func syncProgress() async {
-        guard record != nil, !syncingProgress else { return }
+        guard !syncingProgress else { return }
         syncingProgress = true
         defer { syncingProgress = false }
-        repeat {
-            guard let snapshot = record else { break }
+        while let id = pendingHabitIDs.first {
+            guard let snapshot = records.first(where: { $0.id == id }) else { pendingHabitIDs.remove(id); continue }
             do {
-                let result = try await Backend.shared.request("progress", method: "PUT", body: ["completedDays": snapshot.completedDays])
-                progressPending = record?.completedDays != snapshot.completedDays
-                if !progressPending { applySchedule(result) }
+                let result = try await Backend.shared.request("habits/" + id + "/progress", method: "PUT", body: ["completedDays": snapshot.completedDays])
+                if records.first(where: { $0.id == id })?.completedDays == snapshot.completedDays { pendingHabitIDs.remove(id) }
+                applyHabits(result)
             } catch {
-                progressPending = true
                 message = "Progress saved on this iPhone. Reconnect to update your next call."
                 break
             }
-        } while progressPending
-        UserDefaults.standard.set(progressPending, forKey: "progressPending")
+        }
+        persistHabits()
     }
 
     func saveHabit() {
@@ -228,7 +311,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         guard await permission() else { return }
         saveHabit()
         do {
-            let result = try await Backend.shared.request("calls", method: "POST", body: ["habit": habit, "mode": mode, "delaySeconds": 15])
+            let result = try await Backend.shared.request("calls", method: "POST", body: ["habit": habit, "mode": mode, "habitID": record?.id ?? "", "delaySeconds": 15])
             scheduledID = result["id"] as? String
             message = "Your pet will call in 15 seconds. Lock your iPhone to try it."
         } catch { message = error.localizedDescription }
@@ -242,7 +325,49 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     func end() {
         guard let id = callUUID else { return }
-        controller.request(CXTransaction(action: CXEndCallAction(call: id))) { _ in }
+        endingCallID = id
+        VoiceDiagnostics.record("endRequested", true)
+        VoiceDiagnostics.record("endRequestedAt", Date().timeIntervalSince1970)
+        finish()
+        controller.request(CXTransaction(action: CXEndCallAction(call: id))) { [weak self] error in
+            Task { @MainActor in
+                if let error {
+                    VoiceDiagnostics.record("endTransactionError", (error as NSError).code)
+                    self?.provider.reportCall(with: id, endedAt: Date(), reason: .remoteEnded)
+                } else { VoiceDiagnostics.record("endTransactionAccepted", true) }
+            }
+        }
+    }
+
+    func sayGoodbyeAndEnd() {
+        guard callUUID != nil, !ending else { return }
+        ending = true
+        connecting = false
+        ringing = false
+        ringback.stop()
+        callDeadline?.cancel()
+        connectionTask?.cancel()
+        voice?.onEvent = nil
+        voice?.onFailure = nil
+        voice?.onLevel = nil
+        voice?.close()
+        voice = nil
+        muted = true
+        completionTask?.cancel()
+        caption = completed ? "Well done! Good job. Your habit is done. Speak tomorrow." : "Okay. Good job showing up. Speak soon."
+        message = completed ? "Habit done. Saved on this iPhone. See you tomorrow." : "Call ended. You can call Pip again whenever you want."
+        farewell.onLevel = { [weak self] level in self?.audioLevel = level }
+        farewell.onFinished = { [weak self] in self?.end() }
+        let played = farewell.play(mode: mode, completed: completed)
+        VoiceDiagnostics.record("farewellStarted", played)
+        guard played else { end(); return }
+        VoiceDiagnostics.record("farewellStartedAt", Date().timeIntervalSince1970)
+        VoiceDiagnostics.record("farewellKind", completed ? "completion" : "goodbye")
+        callDeadline = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            end()
+        }
     }
 
     func toggleMute() {
@@ -251,12 +376,13 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
 
     func markCompleted(_ done: Bool) {
+        guard let id = record?.id else { return }
         completed = done
         record?.complete(done)
+        if active { VoiceDiagnostics.record("completionSaved", done) }
+        pendingHabitIDs.insert(id)
         persistRecord()
         showingCelebration = done
-        progressPending = true
-        UserDefaults.standard.set(true, forKey: "progressPending")
         Task { await syncProgress() }
         if done { UserDefaults.standard.set(Date(), forKey: "completedAt") }
         else { UserDefaults.standard.removeObject(forKey: "completedAt") }
@@ -274,6 +400,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     private func startVoice() {
         callDeadline?.cancel()
+        stopCommand = VoiceStopCommand()
+        completionTranscript = ""
+        lastInputEnd = 0
+        inputRevision = 0
         VoiceDiagnostics.record("stage", "starting_voice")
         ringing = true
         let voice = VoiceClient()
@@ -290,7 +420,17 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         message = "Ringing Pip..."
         if RTCAudioSession.sharedInstance().isAudioEnabled { ringback.start() }
         connectionTask = Task {
-            do { try await voice.connect(habit: habit, mode: mode, callID: incomingID, onboarding: onboardingVoice) }
+            do {
+                if let incomingID {
+                    let context = try await Backend.shared.request("calls/" + incomingID)
+                    guard let habitID = context["habitID"] as? String else { throw AuthFailure.invalid("This call has no saved habit. Open Habits and try again.") }
+                    if !records.contains(where: { $0.id == habitID }) { applyHabits(try await Backend.shared.request("habits")) }
+                    guard let target = records.first(where: { $0.id == habitID }) else { throw AuthFailure.invalid("This habit was removed. Return to Habits.") }
+                    applySelection(target)
+                }
+                guard !Task.isCancelled else { return }
+                try await voice.connect(habit: habit, mode: mode, callID: incomingID, onboarding: onboardingVoice)
+            }
             catch { if !Task.isCancelled { fail(error.localizedDescription) } }
         }
         callDeadline = Task {
@@ -313,7 +453,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     private func finish() {
         ringing = false
+        ending = false
         ringback.stop()
+        farewell.stop()
+        completionTask?.cancel()
         connectionTask?.cancel()
         callDeadline?.cancel()
         voice?.onEvent = nil
@@ -345,8 +488,18 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     private func receive(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
+        if !onboardingVoice, !ending, type == "session.input_transcript.delta", let delta = event["delta"] as? String {
+            checkSpokenCompletion(delta, start: event["start_ms"] as? Int ?? 0, end: event["end_ms"] as? Int ?? 0)
+        }
         if type == "session.output_transcript.delta", let delta = event["delta"] as? String {
             caption = String((caption + delta).suffix(320))
+        }
+        if type == "session.input_transcript.delta", let delta = event["delta"] as? String,
+           stopCommand.append(delta, start: event["start_ms"] as? Int ?? 0, end: event["end_ms"] as? Int ?? 0) {
+            VoiceDiagnostics.record("spokenStopRecognized", true)
+            message = "Call ended. You can call Pip again whenever you want."
+            sayGoodbyeAndEnd()
+            return
         }
         if onboardingVoice, type == "session.input_transcript.delta", let delta = event["delta"] as? String {
             userTranscript = String((userTranscript + delta).prefix(12000))
@@ -368,11 +521,18 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         } else if type == "decision.event", let inner = event["event"] as? [String: Any],
                   inner["type"] as? String == "decision.completed", let decision = inner["decision"] as? [String: Any],
                   let answers = decision["answers"] as? [[String: Any]] {
+            if event["source_event_type"] as? String == "session.input_transcript.delta",
+               answers.contains(where: { $0["name"] as? String == "call_control" && $0["choice"] as? String == "stop" }) {
+                VoiceDiagnostics.record("spokenStopDecision", true)
+                message = "Call ended. You can call Pip again whenever you want."
+                sayGoodbyeAndEnd()
+                return
+            }
             if let delegation = event["delegation_id"] as? String, delegations.contains(delegation), !handled.contains(delegation) {
                 handled.insert(delegation)
                 let action = answers.first { $0["name"] as? String == "habit_action" }?["choice"] as? String
-                if action == "stop" { end(); return }
-                if action == "completed" { markCompleted(true) }
+                if action == "stop" { sayGoodbyeAndEnd(); return }
+                if action == "completed" { markCompleted(true); sayGoodbyeAndEnd(); return }
                 let result = action == "completed" ? "Habit completion was saved on this iPhone." : action == "starting" ? "The user is starting. The habit is not yet marked complete." : "No habit change was made."
                 let clientID = UUID().uuidString
                 pendingCommentary[clientID] = (delegation, result)
@@ -383,6 +543,29 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
                       ["happy", "thinking", "attentive"].contains(next) {
                 directionOrder[direction] = order
                 expression = next
+            }
+        }
+    }
+
+    private func checkSpokenCompletion(_ delta: String, start: Int, end: Int) {
+        if start - lastInputEnd > 1800 { completionTranscript = "" }
+        lastInputEnd = end
+        completionTranscript = String((completionTranscript + delta).suffix(1500))
+        inputRevision += 1
+        completionTask?.cancel()
+        guard completionTranscript.range(of: #"\b(did|done|finished|completed)\b"#, options: [.regularExpression, .caseInsensitive]) != nil else { return }
+        let transcript = completionTranscript
+        let revision = inputRevision
+        let habitID = record?.id
+        completionTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(1000))
+                let result = try await Backend.shared.request("habit-action", method: "POST", body: ["habit": habit, "mode": mode, "transcript": transcript])
+                guard !Task.isCancelled, active, !ending, record?.id == habitID, inputRevision == revision else { return }
+                VoiceDiagnostics.record("spokenCompletionDecision", result["action"] as? String ?? "none")
+                if result["action"] as? String == "completed" { markCompleted(true); sayGoodbyeAndEnd() }
+            } catch {
+                if !Task.isCancelled { VoiceDiagnostics.record("completionCheckFailed", true) }
             }
         }
     }
@@ -425,6 +608,14 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         }
     }
     nonisolated func providerDidReset(_ provider: CXProvider) { MainActor.assumeIsolated { finish() } }
+    nonisolated func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
+        MainActor.assumeIsolated {
+            guard call.uuid == callUUID || call.uuid == endingCallID else { return }
+            VoiceDiagnostics.record("systemCallEnded", call.hasEnded)
+            if call.hasEnded { VoiceDiagnostics.record("systemCallEndedAt", Date().timeIntervalSince1970) }
+            if call.hasEnded { endingCallID = nil }
+        }
+    }
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         MainActor.assumeIsolated {
         do { try configureAudio(); startVoice(); action.fulfill() }

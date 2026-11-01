@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct PetView: View {
     @ObservedObject var pets: PetStore
@@ -23,11 +22,17 @@ struct HabitFlow: View {
     @ObservedObject var calls: CallCoordinator
     @ObservedObject var pets: PetStore
     @State private var creating = false
-    @State private var description = "A tiny teal owl with a mischievous smile"
+    @State private var petKind = "Fox"
+    @State private var petColour = "Orange"
+    @State private var petDetails = ""
+    @FocusState private var petDetailsFocused: Bool
     @State private var ranVoiceCheck = false
     @State private var editing = false
+    @State private var adding = false
+    @State private var tab = HobbitTab.today
+    @State private var confirmHabitRemoval = false
+    @State private var finalHabitRemoval = false
     @State private var changingPet = false
-    @State private var importing = false
     @State private var previewMode = "Gentle"
     @State private var previewTalking = false
     @State private var previewLevel = 0.0
@@ -45,20 +50,37 @@ struct HabitFlow: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 6) {
                     HobbitWordmark()
                     Spacer()
-                    if pets.chosen { Text(calls.active ? "YOU + PIP" : "YOUR TINY COACH").font(HobbitFont.label(9)).tracking(1.5).foregroundStyle(HobbitStyle.muted) }
                 }
                 if calls.active || calls.connecting { callScreen }
                 else if !pets.chosen || changingPet { onboarding }
                 else if calls.record == nil { HabitEditor(calls: calls, pets: pets) }
                 else if calls.showingCelebration { CelebrationView(calls: calls, pets: pets) }
-                else { TodayView(calls: calls, pets: pets, edit: { editing = true }, changePet: { creating = false; changingPet = true }) }
+                else {
+                    switch tab {
+                    case .today:
+                        CompactTodayView(calls: calls, pets: pets, edit: { adding = false; editing = true }, add: addHabit)
+                    case .habits:
+                        HabitLibraryView(calls: calls, add: addHabit, edit: { id in
+                            calls.selectHabit(id); adding = false; editing = true
+                        }, open: { id in calls.selectHabit(id); tab = .today })
+                    case .settings:
+                        HobbitSettingsView(calls: calls, changePet: { creating = false; changingPet = true })
+                    }
+                }
+                if !pets.chosen || changingPet { Spacer(minLength: 0) }
             }
-            .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 28)
+            .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 12)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if pets.chosen && calls.record != nil && !calls.active && !calls.connecting && !changingPet {
+                HobbitTabBar(selected: $tab)
+            }
         }
         .id(screenKey)
         .foregroundStyle(ink)
@@ -74,23 +96,32 @@ struct HabitFlow: View {
             Button("Keep my pet", role: .cancel) {}
             Button("Replace pet", role: .destructive) { saveCustomPet() }
         } message: { Text("The old sprite will be removed from this phone. This cannot be undone.") }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.png]) { result in
-            do {
-                let url = try result.get()
-                let access = url.startAccessingSecurityScopedResource()
-                defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= 20_000_000 else { throw AuthFailure.invalid("Choose a PNG smaller than 20 MB.") }
-                try pets.importSheet(data: Data(contentsOf: url), columns: 4)
-                creating = true
-            } catch { pets.message = error.localizedDescription }
-        }
         .sheet(isPresented: $editing) {
             NavigationStack {
-                ScrollView { HabitEditor(calls: calls, pets: pets, editing: true, onSaved: { editing = false }).padding(26) }
+                VStack(spacing: 8) {
+                    HabitEditor(calls: calls, pets: pets, editing: true, adding: adding, onSaved: { editing = false; tab = .today })
+                    if !adding {
+                        HStack {
+                            Button(calls.record?.paused == true ? "Resume this call" : "Pause this call") { Task { await calls.togglePause() } }
+                            Spacer()
+                            Button("Delete habit", role: .destructive) { confirmHabitRemoval = true }.accessibilityIdentifier("delete-habit")
+                        }.font(HobbitFont.body(13)).frame(minHeight: 44).disabled(calls.saving)
+                    }
+                }.padding(.horizontal, 24).padding(.bottom, 8)
                     .background(HobbitStyle.cream)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editing = false }.disabled(calls.saving) } }
-            }.interactiveDismissDisabled(calls.saving)
+                    .confirmationDialog("Delete this habit?", isPresented: $confirmHabitRemoval, titleVisibility: .visible) {
+                        Button("Continue deleting", role: .destructive) { finalHabitRemoval = true }
+                        Button("Keep habit", role: .cancel) {}
+                    } message: { Text("Its daily call and saved progress will be removed.") }
+                    .alert("Delete habit and progress?", isPresented: $finalHabitRemoval) {
+                        Button("Keep habit", role: .cancel) {}
+                        Button("Delete permanently", role: .destructive) {
+                            guard let id = calls.record?.id else { return }
+                            Task { if await calls.deleteHabit(id) { editing = false } }
+                        }
+                    } message: { Text("This cannot be undone. Your other habits will stay.") }
+            }.interactiveDismissDisabled(calls.saving).presentationDetents([.large]).preferredColorScheme(.dark).tint(HobbitStyle.orange)
         }
         .task {
             await calls.refresh()
@@ -106,19 +137,15 @@ struct HabitFlow: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await calls.refresh() } }
         }
+        .onChange(of: tab) { _, _ in calls.showingCelebration = false }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in calls.checkDay() }
     }
 
     private var onboarding: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if creating { Text("Make it yours.").font(HobbitFont.title()).tracking(-1.3) }
-            else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Small pet.").font(HobbitFont.title()).tracking(-1.3)
-                    Text("Big get-up energy.").font(HobbitFont.title()).tracking(-1.3).foregroundStyle(accent)
-                }.accessibilityElement(children: .combine).accessibilityLabel("Meet your daily push.")
-            }
-            PetView(pets: pets, audioLevel: previewLevel, previewing: pets.preview != nil && creating, mode: previewMode).frame(height: 215)
+        VStack(alignment: .leading, spacing: 14) {
+            Text(creating ? "Create your pet" : "Choose your pet").font(HobbitFont.title(30)).tracking(-1)
+            if !creating || pets.preview != nil || pets.busy {
+            PetView(pets: pets, audioLevel: previewLevel, previewing: pets.preview != nil && creating, mode: previewMode).frame(height: 180)
                 .overlay(alignment: .topTrailing) {
                     if !creating {
                         Text("Excuses? Interesting.").font(HobbitFont.body(11, weight: .semibold)).padding(12)
@@ -127,13 +154,15 @@ struct HabitFlow: View {
                             .rotationEffect(.degrees(7)).offset(y: 10)
                     }
                 }
+            }
             if pets.preview != nil && creating {
                 Picker("Preview expression", selection: $previewMode) {
                     Text("Calm").tag("Gentle")
                     Text("Stern").tag("Aggressive")
                     Text("Angry").tag("Unhinged")
                 }.pickerStyle(.segmented)
-                Toggle("Preview talking", isOn: $previewTalking).font(HobbitFont.body(13))
+                Button(previewTalking ? "Stop preview" : "Preview talking") { previewTalking.toggle() }
+                    .font(HobbitFont.body(13)).buttonStyle(.bordered)
                     .task(id: previewTalking) {
                         while previewTalking && !Task.isCancelled {
                             previewLevel = 0.07
@@ -147,9 +176,25 @@ struct HabitFlow: View {
                     }
             }
             if creating {
-                TextField("Describe your pet", text: $description, axis: .vertical)
-                    .padding(18).background(HobbitStyle.panel, in: RoundedRectangle(cornerRadius: 18))
-                    .disabled(pets.busy)
+                if pets.preview == nil && !pets.busy {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("What kind of pet?").font(HobbitFont.body(17, weight: .bold))
+                        Picker("Pet type", selection: $petKind) {
+                            ForEach(["Fox", "Cat", "Owl", "Dragon"], id: \.self) { Text($0).tag($0) }
+                        }.pickerStyle(.segmented)
+                    }.padding(18).background(HobbitStyle.panel, in: RoundedRectangle(cornerRadius: 20))
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Which colour?").font(HobbitFont.body(17, weight: .bold))
+                        Picker("Pet colour", selection: $petColour) {
+                            ForEach(["Orange", "Teal", "Purple"], id: \.self) { Text($0).tag($0) }
+                        }.pickerStyle(.segmented)
+                    }.padding(18).background(HobbitStyle.panel, in: RoundedRectangle(cornerRadius: 20))
+                    TextField("Anything else? Optional", text: $petDetails, axis: .vertical)
+                        .lineLimit(2).focused($petDetailsFocused).accessibilityIdentifier("pet-details")
+                        .padding(18).background(HobbitStyle.panel, in: RoundedRectangle(cornerRadius: 18))
+                    if petDetailsFocused { Button("Done typing") { petDetailsFocused = false }.frame(minHeight: 44) }
+                    if petDetails.count > 100 { Text("Keep extra details under 100 characters.").font(HobbitFont.body(12)) }
+                }
                 if !pets.message.isEmpty { Text(pets.message).font(HobbitFont.body(14)).accessibilityAddTraits(.updatesFrequently) }
                 if pets.busy { ProgressView().frame(maxWidth: .infinity) }
                 if pets.preview != nil {
@@ -158,14 +203,23 @@ struct HabitFlow: View {
                         else { saveCustomPet() }
                     }
                 }
-                else { primary("Create my pet") { Task { await pets.generate(description) } }.disabled(pets.busy || description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || description.count > 180) }
+                else {
+                    primary(pets.busy ? "Creating your pet..." : "Create my pet") {
+                        petDetailsFocused = false
+                        let description = "A tiny " + petColour.lowercased() + " " + petKind.lowercased() + ". " + petDetails.trimmingCharacters(in: .whitespacesAndNewlines)
+                        Task { await pets.generate(description) }
+                    }.disabled(pets.busy || petDetails.count > 100)
+                }
+                if pets.preview != nil { Button("Change my answers") { pets.preview = nil; pets.message = ""; previewTalking = false }.frame(maxWidth: .infinity, minHeight: 44) }
                 Button("Use Pip instead") { pets.chooseDefault(); changingPet = false }.frame(maxWidth: .infinity).disabled(pets.busy)
             } else {
-                Text("Pip / your tiny coach").font(HobbitFont.body(14, weight: .medium)).foregroundStyle(HobbitStyle.muted).frame(maxWidth: .infinity)
+                Text("Pip").font(HobbitFont.body(14, weight: .medium)).foregroundStyle(HobbitStyle.muted).frame(maxWidth: .infinity)
                 primary("Use Pip") { pets.chooseDefault(); changingPet = false }
-                Button("Create my pet") { pets.preview = nil; creating = true }.font(HobbitFont.body(15, weight: .bold)).frame(maxWidth: .infinity).padding(8)
-                Button("Import a sprite sheet") { importing = true }.font(HobbitFont.body(13)).frame(maxWidth: .infinity)
-                Text("Import a square PNG with a 4 by 4 expression grid.").font(HobbitFont.body(11)).foregroundStyle(HobbitStyle.muted).frame(maxWidth: .infinity)
+                if pets.custom != nil {
+                    Button("Use my saved pet") { pets.chooseSavedCustom(); changingPet = false }
+                        .font(HobbitFont.body(14, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 40)
+                }
+                Button("Create my pet") { pets.preview = nil; pets.message = ""; creating = true }.font(HobbitFont.body(15, weight: .bold)).frame(maxWidth: .infinity).padding(8)
                 if !pets.message.isEmpty { Text(pets.message).font(HobbitFont.body(14)) }
             }
             if changingPet { Button("Keep my current pet") { changingPet = false }.frame(maxWidth: .infinity).disabled(pets.busy) }
@@ -173,10 +227,11 @@ struct HabitFlow: View {
     }
 
     private var callScreen: some View {
-        VStack(spacing: 24) {
-            Text(calls.ringing || calls.connecting ? "Calling Pip." : calls.completed ? "You did it." : "A little push.")
+        VStack(spacing: 16) {
+            Text(calls.ringing || calls.connecting ? "Calling Pip" : calls.completed ? "Habit complete" : "Pip")
                 .font(HobbitFont.title(34)).tracking(-1.3).frame(maxWidth: .infinity)
-            PetView(pets: pets, expression: calls.expression, audioLevel: calls.audioLevel, mode: calls.onboardingVoice ? "Gentle" : calls.mode).frame(height: 230)
+            PetView(pets: pets, expression: calls.expression, audioLevel: calls.audioLevel, mode: calls.onboardingVoice ? "Gentle" : calls.mode).frame(maxHeight: .infinity)
+                .frame(minHeight: 100)
                 .overlay { if calls.ringing || calls.connecting { RingingHalo() } }
             Text(calls.onboardingVoice ? "Tell me one habit and a call time." : calls.habit).font(HobbitFont.body(14)).foregroundStyle(HobbitStyle.muted)
             Group {
@@ -189,10 +244,10 @@ struct HabitFlow: View {
                 .lineLimit(4).frame(maxWidth: .infinity, minHeight: 95, maxHeight: 95)
             if calls.onboardingVoice {
                 primary("Check my habit") { Task { await calls.checkSpokenHabit() } }.disabled(calls.connecting || calls.checkingHabit)
-            } else if !calls.connecting && !calls.ringing && !calls.completed { primary("I did it") { calls.markCompleted(true); calls.end() } }
+            } else if !calls.connecting && !calls.ringing && !calls.ending && !calls.completed { primary("I did it") { calls.markCompleted(true); calls.sayGoodbyeAndEnd() } }
             HStack(spacing: 26) {
-                Button { calls.toggleMute() } label: { Label(calls.muted ? "Unmute" : "Mute", systemImage: calls.muted ? "mic.slash.fill" : "mic.fill").padding(18).background(HobbitStyle.panel, in: Capsule()) }
-                Button { calls.end() } label: { Label("End", systemImage: "phone.down.fill").padding(18).foregroundStyle(.white).background(Color.red, in: Capsule()) }
+                Button { calls.toggleMute() } label: { Label(calls.muted ? "Unmute" : "Mute", systemImage: calls.muted ? "mic.slash.fill" : "mic.fill").padding(18).background(HobbitStyle.panel, in: Capsule()) }.disabled(calls.ending)
+                Button { calls.end() } label: { Label(calls.ending ? "End now" : "End", systemImage: "phone.down.fill").padding(18).foregroundStyle(.white).background(Color.red, in: Capsule()) }
             }
         }
     }
@@ -203,6 +258,13 @@ struct HabitFlow: View {
 
     private func saveCustomPet() {
         if pets.chooseCustom() { changingPet = false }
+    }
+
+    private func addHabit() {
+        calls.draftHabit = nil
+        calls.message = ""
+        adding = true
+        editing = true
     }
 }
 

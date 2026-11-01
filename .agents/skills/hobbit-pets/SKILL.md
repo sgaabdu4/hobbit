@@ -1,6 +1,6 @@
 ---
 name: hobbit-pets
-description: Generate, import and validate animated sprite companions for the Hobbit iPhone app, including angry expressions and audio-driven mouth frames. Use for Hobbit assets, not ChatGPT Work pets.
+description: Generate and validate animated sprite companions for the Hobbit iPhone app, including angry expressions and audio-driven mouth frames. Use for Hobbit assets, not ChatGPT Work pets.
 ---
 
 Create app-specific sprites using the existing Images API or the available Imagegen tool. Inspect the user's reference before generating. Preserve character identity and the reference's style. Default Pip is the orange, rounded, pointy-eared 2D creature, not a plush 3D mascot.
@@ -20,7 +20,7 @@ The app generation prompt lives in `server/pet-design.mjs`; preserve this atlas 
 
 Inspect all 16 frames on both cream and dark olive backgrounds before selecting an asset. Check that stern and furious are distinct, closed mouths are closed, pupils stay registered, no ears are clipped, and transparent gutters contain no visible flecks. If generation fails these checks, make one targeted revision and inspect again. Do not claim an atlas is clean based only on file dimensions.
 
-Use `PetStore.importSheet(data:columns:)` to preview imports; save only after the user chooses the preview. New sheets use 4 columns. Existing 2-column custom pets remain compatible. Do not overwrite a user's current pet during generation or on a failed import.
+Ask for creature, colour and optional details, with useful defaults. Generate the sheet automatically and preview its moods and talking frames before saving. Do not expose a file-import control. `PetStore.importSheet(data:columns:)` is the internal decoder for generated sheets. New sheets use 4 columns; existing 2-column custom pets remain compatible. Preserve the current pet during generation and on failure.
 
 Use `AnimatedPetView` and `PetMotion` for rendering. Feed real received WebRTC `audioLevel` into the mouth envelope. This is amplitude-driven mouth movement, not phoneme-level lip sync. Mode maps Gentle to calm, Aggressive to stern and Unhinged to furious; clear success can override with happy. Respect Reduce Motion by disabling body movement while retaining mouth indication. Cosmetic expression decisions must never save habit completion.
 

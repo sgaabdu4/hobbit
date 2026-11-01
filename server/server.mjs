@@ -6,6 +6,7 @@ import { pushConfigured, sendCallPush } from './apns.mjs';
 import { dayKey, nextCallAt, validateSchedule, validateCompletedDays } from './schedule.mjs';
 import { extractHabit, onboardingConfiguration, onboardingGreeting } from './onboarding.mjs';
 import { petPrompt } from './pet-design.mjs';
+import { migrateHabits, updateHabit, updateHabitProgress, nextHabitCall } from './habits.mjs';
 
 const secret = readFileSync('.local/server-secret', 'utf8').trim();
 const unhingedVoiceID = process.env.OPENAI_UNHINGED_VOICE_ID || (existsSync('.local/drill-voice.json') ? JSON.parse(readFileSync('.local/drill-voice.json', 'utf8')).id : undefined);
@@ -15,11 +16,11 @@ let livePending = false;
 let lastSessionAt = 0;
 let activeVoice;
 let imagePending = false;
-let plan = existsSync('.local/schedule.json') ? JSON.parse(readFileSync('.local/schedule.json', 'utf8')) : null;
+let plans = migrateHabits(existsSync('.local/schedule.json') ? JSON.parse(readFileSync('.local/schedule.json', 'utf8')) : null);
 let dailyTimer;
 
 function savePlan() {
-  writeFileSync('.local/schedule.json.tmp', JSON.stringify(plan), { mode: 0o600 });
+  writeFileSync('.local/schedule.json.tmp', JSON.stringify({ version: 2, plans }), { mode: 0o600 });
   renameSync('.local/schedule.json.tmp', '.local/schedule.json');
 }
 
@@ -42,10 +43,12 @@ async function ring(call) {
 
 function armDailyCall() {
   clearTimeout(dailyTimer);
-  if (!plan || plan.paused) return;
-  const due = nextCallAt(plan);
+  const next = nextHabitCall(plans);
+  if (!next) return;
+  const { due } = next;
   dailyTimer = setTimeout(async () => {
-    const current = plan;
+    if (Date.now() < due) { armDailyCall(); return; }
+    const current = plans.find(plan => plan.id === next.plan.id);
     if (!current || current.paused) return;
     current.lastAttemptDay = dayKey(due, current.timeZone);
     current.lastError = null;
@@ -54,7 +57,7 @@ function armDailyCall() {
     else if (busyCall()) current.lastError = 'Your daily call was skipped because another call was in progress.';
     savePlan();
     if (!current.lastError) {
-      const call = { id: randomUUID(), habit: current.habit, mode: current.mode, status: 'scheduled', scheduledAt: due };
+      const call = { id: randomUUID(), habitID: current.id, habit: current.habit, mode: current.mode, status: 'scheduled', scheduledAt: due };
       calls.set(call.id, call);
       await ring(call);
       if (call.error) { current.lastError = 'The daily call could not reach your iPhone. Try a call now.'; savePlan(); }
@@ -63,7 +66,12 @@ function armDailyCall() {
   }, Math.min(due - Date.now(), 2147483647));
 }
 
-function scheduleResult() { return { plan, nextCallAt: nextCallAt(plan) }; }
+function scheduleResult(id = plans[0]?.id) {
+  const plan = plans.find(value => value.id === id) ?? null;
+  return { plan, nextCallAt: nextCallAt(plan) };
+}
+
+function habitsResult() { return { habits: plans.map(plan => ({ plan, nextCallAt: nextCallAt(plan) })) }; }
 
 function reply(response, status, value) {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -88,6 +96,46 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       return reply(response, 200, { voiceReady: Boolean(process.env.OPENAI_API_KEY), pushReady: pushConfigured(), deviceRegistered: Boolean(device.token) });
     }
     if (request.method === 'GET' && request.url === '/schedule') return reply(response, 200, scheduleResult());
+    if (request.method === 'GET' && request.url === '/habits') return reply(response, 200, habitsResult());
+    if (request.method === 'POST' && request.url === '/habit-action') {
+      const input = await readJSON(request);
+      const context = validateHabit(input);
+      if (typeof input.transcript !== 'string' || !input.transcript.trim() || input.transcript.length > 1500) throw new Error('A complete spoken statement is required.');
+      const configuration = liveConfiguration(context).delegation.decisions;
+      const upstream = await fetch('https://api.openai.com/v1/decisions', {
+        method: 'POST', headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...configuration, input: 'Current habit: ' + context.habit + '\nLatest user statement: ' + input.transcript }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!upstream.ok) return reply(response, 502, { error: 'Could not confirm completion. You can tap I did it.' });
+      const result = await upstream.json();
+      return reply(response, 200, { action: result.answers?.find(answer => answer.name === 'habit_action')?.choice ?? 'none' });
+    }
+    if (request.method === 'PUT' && request.url === '/habits/pause') {
+      const { paused } = await readJSON(request);
+      if (typeof paused !== 'boolean') throw new Error('Choose whether calls are paused.');
+      let updated = plans.map(plan => ({ ...plan, paused: true }));
+      if (!paused) for (const plan of plans) updated = updateHabit(updated, plan.id, { ...plan, paused: false });
+      plans = updated;
+      savePlan(); armDailyCall();
+      return reply(response, 200, habitsResult());
+    }
+    const habitMatch = request.url?.match(/^\/habits\/(legacy|[a-fA-F0-9-]{36})(\/progress)?$/);
+    if (habitMatch) {
+      const id = habitMatch[1];
+      if (request.method === 'PUT' && habitMatch[2]) {
+        plans = updateHabitProgress(plans, id, (await readJSON(request)).completedDays);
+      } else if (request.method === 'PUT') {
+        if (!process.env.OPENAI_API_KEY || !pushConfigured() || !device.token) return reply(response, 503, { error: 'Connect this iPhone before saving daily calls. Tap Retry connection.' });
+        if (busyCall()) return reply(response, 409, { error: 'Finish or cancel the current call before editing habits.' });
+        plans = updateHabit(plans, id, await readJSON(request));
+      } else if (request.method === 'DELETE' && !habitMatch[2]) {
+        if (busyCall()) return reply(response, 409, { error: 'Finish or cancel the current call before removing a habit.' });
+        plans = plans.filter(plan => plan.id !== id);
+      } else return reply(response, 405, { error: 'This action is not supported.' });
+      savePlan(); armDailyCall();
+      return reply(response, 200, habitsResult());
+    }
     if (request.method === 'POST' && request.url === '/habit-draft') {
       if (!process.env.OPENAI_API_KEY) return reply(response, 503, { error: 'Voice setup is incomplete. Type your habit instead.' });
       return reply(response, 200, await extractHabit((await readJSON(request)).transcript));
@@ -96,13 +144,13 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       const input = validateSchedule(await readJSON(request));
       if (!process.env.OPENAI_API_KEY || !pushConfigured() || !device.token) return reply(response, 503, { error: 'Connect this iPhone before saving daily calls. Tap Retry connection.' });
       if (busyCall()) return reply(response, 409, { error: 'Finish or cancel the current call before changing your daily call.' });
-      plan = { ...input, completedDays: plan?.completedDays ?? [], lastAttemptDay: plan?.lastAttemptDay ?? null, lastError: null };
+      plans = updateHabit(plans, plans[0]?.id ?? 'legacy', input);
       savePlan(); armDailyCall();
       return reply(response, 200, scheduleResult());
     }
     if (request.method === 'PUT' && request.url === '/progress') {
       const days = validateCompletedDays((await readJSON(request)).completedDays);
-      if (plan) { plan.completedDays = days; savePlan(); armDailyCall(); }
+      if (plans[0]) { plans = updateHabitProgress(plans, plans[0].id, days); savePlan(); armDailyCall(); }
       return reply(response, 200, scheduleResult());
     }
     if (request.method === 'POST' && request.url === '/device') {
@@ -141,7 +189,9 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       if (!Number.isInteger(delay) || delay < 10 || delay > 86400) return reply(response, 400, { error: 'Choose a call time within the next day.' });
       if (busyCall()) return reply(response, 409, { error: 'A call is already scheduled or active. Finish it first.' });
       const id = randomUUID();
-      const call = { id, ...habit, status: 'scheduled', scheduledAt: Date.now() + delay * 1000 };
+      const habitID = input.habitID ?? plans[0]?.id;
+      if (!plans.some(plan => plan.id === habitID)) return reply(response, 400, { error: 'Save a habit before trying an incoming call.' });
+      const call = { id, habitID, ...habit, status: 'scheduled', scheduledAt: Date.now() + delay * 1000 };
       calls.set(id, call);
       call.timer = setTimeout(() => ring(call), delay * 1000);
       return reply(response, 201, { id, scheduledAt: call.scheduledAt });
@@ -153,7 +203,7 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       if (request.method === 'DELETE') { clearTimeout(call.timer); call.status = 'ended'; return reply(response, 200, { ended: true }); }
       if (request.method === 'GET') {
         if (call.status === 'ringing' && Date.now() > call.expiresAt) call.status = 'missed';
-        return reply(response, 200, { id: call.id, habit: call.habit, mode: call.mode, status: call.status, error: call.error });
+        return reply(response, 200, { id: call.id, habitID: call.habitID, habit: call.habit, mode: call.mode, status: call.status, error: call.error });
       }
     }
     const voiceMatch = request.url?.match(/^\/voice\/([a-fA-F0-9-]{36})$/);
