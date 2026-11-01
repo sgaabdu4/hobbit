@@ -1,0 +1,7 @@
+Create an animation sprite atlas for Hobbit from the reference orange Pip character. This is a new atlas, not a screenshot edit.
+Pip is an orange round bean creature with two tall uneven ears, cream oval eyes and dark green pupils, thick brown expressive eyebrows, small rosy cheeks and two oval orange feet. Match the reference's polished flat 2D style and warm subtle orange gradient. No 3D or plush texture.
+Exactly four columns and four rows, sixteen equal 256 by 256 cells on a 1024 by 1024 transparent PNG. Each complete character sits centered at identical scale, baseline, body shape and eye position within its cell. Keep 10% empty gutter on all four sides of every cell. Never crop ears or feet.
+Rows from top to bottom: calm friendly; stern impatient; furious comic drill sergeant with sharply angled eyebrows; delighted proud celebration.
+Columns from left to right in EVERY row: mouth closed; mouth slightly open; mouth wide open; eyes closed in a blink with mouth closed.
+Only face and mouth change across columns, not body shape or pose. Closed mouths must not look open. Stern and furious should be clearly different while remaining adorable.
+Perfectly clean transparent alpha, crisp antialiased edges. Absolutely no detached specks, dust, glow, colored fringe, sparkles, ground, shadow, backdrop, text, labels, speech bubbles or grid lines.

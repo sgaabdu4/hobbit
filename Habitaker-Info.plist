@@ -4,4 +4,7 @@
 <key>NSMicrophoneUsageDescription</key><string>Talk with your AI habit companion during a call.</string>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your paired Hobbit server on this Wi-Fi network.</string>
 <key>UIBackgroundModes</key><array><string>audio</string><string>voip</string></array>
+<key>UIAppFonts</key><array><string>Manrope.ttf</string><string>DMSans.ttf</string></array>
+<key>UIUserInterfaceStyle</key><string>Dark</string>
+<key>UILaunchScreen</key><dict><key>UIColorName</key><string>LaunchBackground</string></dict>
 </dict></plist>

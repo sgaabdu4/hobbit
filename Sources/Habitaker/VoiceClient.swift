@@ -16,8 +16,9 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var sessionStarted = false
     private var greeting: String?
     private var lastDiagnostic = Date.distantPast
+    private var connectionID: String?
 
-    func connect(habit: String, mode: String, callID: String?) async throws {
+    func connect(habit: String, mode: String, callID: String?, onboarding: Bool = false) async throws {
         VoiceDiagnostics.record("stage", "preparing_audio")
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -52,9 +53,12 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
             throw AuthFailure.invalid("The network could not prepare this call. Try another Wi-Fi network.")
         }
         var body: [String: Any] = ["sdp": sdp, "habit": habit, "mode": mode]
+        if onboarding { body["purpose"] = "onboarding" }
         if let callID { body["callID"] = callID }
         VoiceDiagnostics.record("stage", "requesting_session")
         let response = try await Backend.shared.request("voice", method: "POST", body: body)
+        connectionID = response["connectionID"] as? String
+        if Task.isCancelled { releaseConnection(); throw CancellationError() }
         VoiceDiagnostics.record("stage", "session_created")
         greeting = response["greeting"] as? String
         try Task.checkCancellation()
@@ -99,6 +103,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     func mute(_ muted: Bool) { microphone?.isEnabled = !muted }
 
     func close() {
+        releaseConnection()
         microphone?.isEnabled = false
         meter?.invalidate()
         if sessionStarted, channel?.readyState == .open {
@@ -107,6 +112,12 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
                 Task { @MainActor in self.shutdown() }
             }
         } else { shutdown() }
+    }
+
+    private func releaseConnection() {
+        guard let id = connectionID else { return }
+        connectionID = nil
+        Task { _ = try? await Backend.shared.request("voice/" + id, method: "DELETE") }
     }
 
     private func shutdown() {

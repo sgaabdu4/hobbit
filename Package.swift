@@ -7,6 +7,8 @@ let package = Package(
     products: [.library(name: "AuthCore", targets: ["AuthCore"])],
     targets: [
         .target(name: "AuthCore"),
-        .testTarget(name: "AuthCoreTests", dependencies: ["AuthCore"])
+        .testTarget(name: "AuthCoreTests", dependencies: ["AuthCore"]),
+        .target(name: "HabitCore"),
+        .testTarget(name: "HabitCoreTests", dependencies: ["HabitCore"])
     ]
 )

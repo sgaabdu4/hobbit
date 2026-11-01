@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=24 <27" },
+  "engines": { "node": ">=26.12 <27" },
   "scripts": {
     "prepare:device": "node server/prepare-dev.mjs",
     "create:voice": "node --env-file=.env scripts/create-drill-voice.mjs",

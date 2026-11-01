@@ -13,3 +13,4 @@ xcuserdata/
 verification.json
 .DS_Store
 Sources/Habitaker/Resources/DevelopmentConfig.json
+output/imagegen/atlas-review.html

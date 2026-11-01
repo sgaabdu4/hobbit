@@ -6,7 +6,7 @@ import UIKit
 
 @MainActor
 final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
-    @Published var message = "Check ChatGPT sign-in on this iPhone."
+    @Published var message = "Sign in to meet your AI habit companion."
     @Published var busy = false
     @Published var verified = false
     @Published var planEnabled = false
@@ -21,6 +21,7 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
         let clientID: String
         let subject: String
         let tokens: TokenResponse
+        var nonce: String? = nil
     }
 
     override init() {
@@ -30,11 +31,77 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
         let parts = saved.tokens.id_token.split(separator: ".")
         guard parts.count == 3, let payload = Data(base64URL: String(parts[1])),
               let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
-              let expiry = claims["exp"] as? Double, expiry > Date().timeIntervalSince1970,
+              let expiry = claims["exp"] as? Double,
               claims["sub"] as? String == saved.subject else { return }
+        guard expiry > Date().timeIntervalSince1970 + 60 else {
+            Task { await refreshIfNeeded() }
+            return
+        }
         verified = true
         planEnabled = saved.tokens.scope.split(separator: " ").contains("chatgpt.tokens.use.direct")
         record("identity_verified", "Your saved ChatGPT sign-in is ready.")
+    }
+
+    func refreshIfNeeded() async {
+        guard !busy, let data = try? Keychain.read("registration"),
+              let saved = try? JSONDecoder().decode(Registration.self, from: data),
+              let previous = Self.claims(saved.tokens.id_token),
+              let expiry = previous["exp"] as? Double,
+              expiry <= Date().timeIntervalSince1970 + 60 else { return }
+        guard let refreshToken = saved.tokens.refresh_token else {
+            verified = false
+            message = "Your sign-in expired. Continue with ChatGPT to reconnect."
+            return
+        }
+        busy = true
+        defer { busy = false }
+        record("refreshing", "Reconnecting your ChatGPT sign-in...")
+        do {
+            let fields = ["grant_type": "refresh_token", "client_id": saved.clientID, "refresh_token": refreshToken,
+                          "resource": "https://api.openai.com/v1"]
+            var request = URLRequest(url: URL(string: "https://auth.openai.com/api/accounts/oauth/token")!)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+            request.httpBody = Data(fields.sorted { $0.key < $1.key }.map {
+                $0.key + "=" + $0.value.addingPercentEncoding(withAllowedCharacters: allowed)!
+            }.joined(separator: "&").utf8)
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 30
+            let network = URLSession(configuration: config)
+            defer { network.invalidateAndCancel() }
+            let (data, response) = try await network.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw AuthFailure.invalid("ChatGPT could not renew this session. Continue with ChatGPT to reconnect.")
+            }
+            let tokens = try JSONDecoder().decode(TokenResponse.self, from: data)
+            guard tokens.token_type.lowercased() == "bearer", !tokens.access_token.isEmpty,
+                  tokens.expires_in > 0, tokens.refresh_token?.isEmpty == false else {
+                throw AuthFailure.invalid("ChatGPT returned incomplete renewal details. Sign in again.")
+            }
+            let (keyData, keyResponse) = try await network.data(from: URL(string: "https://auth.openai.com/.well-known/jwks.json")!)
+            guard (keyResponse as? HTTPURLResponse)?.statusCode == 200 else { throw AuthFailure.invalid("ChatGPT identity checks are unavailable. Try again.") }
+            let keys = try JSONDecoder().decode(JWKSet.self, from: keyData)
+            let originalNonce = saved.nonce ?? previous["nonce"] as? String
+            let returnedNonce = Self.claims(tokens.id_token)?["nonce"] as? String
+            if let returnedNonce, returnedNonce != originalNonce { throw AuthFailure.invalid("The renewed identity did not match this sign-in.") }
+            let expectedNonce = returnedNonce == nil ? nil : originalNonce
+            let subject = try IDTokenValidator.validate(tokens.id_token, keys: keys, clientID: saved.clientID, nonce: expectedNonce)
+            guard subject == saved.subject else { throw AuthFailure.invalid("The renewed identity did not match your saved account.") }
+            try Keychain.save(JSONEncoder().encode(Registration(clientID: saved.clientID, subject: subject, tokens: tokens, nonce: originalNonce)), account: "registration")
+            verified = true
+            planEnabled = tokens.scope.split(separator: " ").contains("chatgpt.tokens.use.direct")
+            record("identity_verified", "Your ChatGPT sign-in was renewed securely.")
+        } catch {
+            verified = false
+            record("refresh_failed", error is URLError ? "Cannot reconnect right now. Check Wi-Fi, then continue with ChatGPT." : error.localizedDescription)
+        }
+    }
+
+    private static func claims(_ token: String) -> [String: Any]? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3, let data = Data(base64URL: String(parts[1])) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     func signIn() {
@@ -179,7 +246,7 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
             }
         }
         try Task.checkCancellation()
-        try Keychain.save(JSONEncoder().encode(Registration(clientID: clientID, subject: subject, tokens: tokens)), account: "registration")
+        try Keychain.save(JSONEncoder().encode(Registration(clientID: clientID, subject: subject, tokens: tokens, nonce: pending.nonce)), account: "registration")
         verified = true
         planEnabled = tokens.scope.split(separator: " ").contains("chatgpt.tokens.use.direct")
         busy = false

@@ -1,10 +1,16 @@
 # Hobbit
 
-A native iPhone habit companion. Sign in with ChatGPT, choose Pip or create your own pet, set one small habit, and talk with your pet. The development build includes native internet calls, a 15-second incoming-call demo, animated expressions and local habit completion.
+A native iPhone habit companion. Sign in with ChatGPT, choose Pip or create your own pet, set one small daily habit and a call time, then talk with your pet and save your progress. Gentle, Aggressive and Unhinged coaching modes change both the voice and the animated character's expression.
+
+The complete journey is pet selection, spoken or typed habit setup, editable confirmation, daily calls, voice coaching, completion, a saved streak and undo. The app uses the approved dark olive design with bundled Manrope and DM Sans fonts.
 
 Public source: [github.com/sgaabdu4/hobbit](https://github.com/sgaabdu4/hobbit). The Xcode project and bundle identifier retain the earlier Habitaker name to preserve installed sign-in and push registration.
 
-Verified on a physical iPhone on 1 November 2026: OAuth returned through the phone's loopback listener, signed identity validation passed, and ChatGPT-plan permission was granted. Pet onboarding runs on the device. GPT Image 2.5 generated the bundled original pet and expression sheet. The live Decisions API correctly classified three synthetic examples: completion, future intention and stopping a call. Device voice diagnostics confirmed microphone input, received audio, input/output transcript events and loudspeaker routing; the tester heard the pet. Locked-screen incoming calls still need verification.
+[Watch the 68-second demo](docs/demo.mp4). It combines real iPhone screenshots and screen recording with a separately labelled synthetic-input GPT-Live audio check. [Demo notes](DEMO.md) explain exactly what is shown.
+
+<img src="docs/screenshots/pet.png" alt="Choose Pip or create a pet" width="220"> <img src="docs/screenshots/ringing.png" alt="Pip ringing on the iPhone" width="220"> <img src="docs/screenshots/completion.png" alt="Saved habit completion" width="220">
+
+Verified on a physical iPhone on 1 November 2026: OAuth returned through the phone's loopback listener, signed identity validation passed, and ChatGPT-plan permission was granted. Pet onboarding runs on the device. GPT Image 2.5 generated the bundled original pet and expression sheet. Device voice diagnostics confirmed microphone input, received audio, input/output transcript events and loudspeaker routing; the tester heard the pet. A scheduled incoming push reached an active voice session after a device-lock command. The system lock-screen UI was not captured.
 
 ## Set up the development demo
 
@@ -17,9 +23,11 @@ Verified on a physical iPhone on 1 November 2026: OAuth returned through the pho
 
 The project pins WebRTC 156.0.0. Xcode resolves it automatically. No npm packages are required. The phone pins the generated TLS certificate and sends a device pairing token to this development server. This is a single-device hackathon setup, not a public multi-user backend. Never distribute a build containing your development pairing secret.
 
-Calls are capped at three minutes in the app. Scheduled calls currently live in server memory and are lost when it restarts. The 15-second button is a demo control, not a daily alarm. Apple controls the incoming-call screen; pet animations appear inside Hobbit. A force-quit app, network failure or iOS policy can prevent delivery, so do not rely on this for essential reminders.
+Calls are capped at three minutes in the app. The daily habit, time zone, pause state and completed days are stored under `.local/schedule.json` and survive server restarts. Daily scheduling uses calendar dates in the chosen time zone, including daylight-saving changes. A missed call time while the Mac is asleep is skipped rather than replayed in a burst. The separate 15-second test call is temporary and is lost on server restart. Keep the Mac awake and the server running for daily calls. Apple controls the incoming-call screen; pet animations appear inside Hobbit.
 
-Pet creation asks for one description and previews the result before saving. The app uses a four-state 2-by-2 image sheet: attentive, speaking, thinking and happy. It is an app-specific format, not a full ChatGPT pet-library export. Speaking frames follow received audio levels. Cosmetic transcript decisions cannot mark the habit done; completion uses a separate explicit-action decision and can be undone.
+Pet creation asks for one description and previews the result before saving. New pets use a transparent 4-by-4 PNG atlas. Rows are calm, stern, furious and happy; columns are closed mouth, small open mouth, wide open mouth and blink. The app also imports these sheets and supports older 2-by-2 custom pets. Speaking frames follow actual received audio amplitude with smoothing; this approximates mouth motion rather than phoneme-level lip sync. Blinks and restrained body movement respect Reduce Motion. Cosmetic transcript decisions cannot mark the habit done; completion uses a separate explicit-action decision or the visible "I did it" button and can be undone.
+
+The reusable [Hobbit pet skill](.agents/skills/hobbit-pets/SKILL.md) documents generation, validation and integration. It is independent of ChatGPT Work's pet creation skill. Spoken setup uses GPT-Live to collect the request, then a structured GPT-6 Luna Responses result fills an editable draft. Nothing is scheduled until the user confirms it.
 
 For a custom Unhinged voice, enable Voices read/write on the project key and run `npm run create:voice` once. This creates a new original synthetic voice, saves its ID under `.local`, and preserves its design prompt in `server/voice-design.mjs`. Restart the server to use it. An existing voice ID can instead be set as `OPENAI_UNHINGED_VOICE_ID`. Without a custom voice, stronger modes use Vesper; Gentle uses Marin. Vocal delivery varies and needs listening tests.
 
@@ -39,9 +47,16 @@ No API key is required for this OAuth check. Credentials and the stable host ide
 - Apple's authentication browser stays open during authorization. After receiving the loopback callback, the local listener redirects to an internal completion scheme to close that browser. This mobile combination needs a real-device test; documentation alone is not proof it works.
 - ChatGPT plan permission is reported separately from identity verification. Inference has not been tested.
 - The product will generate an app-specific pet. Automatic ChatGPT pet-library access is no longer a requirement. The documented identity and Responses scopes do not establish access to that library.
-- Native voice, incoming-call handling, pet creation and sprite playback are implemented. Foreground voice transport and loudspeaker routing were checked on the phone. Locked-screen delivery and phone-generated custom pets have not yet been checked. Sprite import is not implemented.
+- Native UI tests passed on the signed-in physical iPhone: typed habit setup, saving the daily call, completion, persistence after relaunch, undo, pet selection without replacement, and opening the habit editor.
+- Expired sign-in was caught during device testing. The app now renews the saved session using the documented rotating refresh token, validates the renewed identity, and saves the replacement in Keychain.
+- Foreground voice transport and loudspeaker routing were checked on the phone. The incoming push-to-answer path reached an active Live session. Lock-screen presentation, phone-generated custom pets and a file-picker sprite import have not yet been checked end to end.
+- The physical iPhone resolved the bundled font families as Manrope and DM Sans. Dark Today, calling and completion screens were captured and inspected. Native UI checks verified that actual received speech opens Pip's mouth.
+- The ringing screen pulses around Pip until received audio begins. Device diagnostics confirmed that ringback starts and stops and that output uses the built-in loudspeaker.
+- A synthetic spoken "I don't want to do it" was sent through GPT-Live with the actual Unhinged configuration and custom voice. Pip challenged the delay and gave a ten-second first step. Six live Decisions checks distinguished reluctance from an explicit request to stop and from completion.
 
-Run the focused OAuth checks with `swift test`. They test callback validation, a valid RSA-signed identity, tampered signatures and invalid identity claims. They do not replace real sign-in or cover every JWT failure case.
+Run `swift test` for OAuth validation, daily completion and streak rollover, and audio-to-mouth animation logic. Run `npm test` for habit validation, separation of cosmetic and completion decisions, and daily scheduling across clock changes. The `HobbitUITests` Xcode scheme runs the native UI checks on an already-signed-in iPhone. The separate `HobbitDemo` scheme explicitly opts into a billable live voice check and keeps its screen recording.
+
+Run `node --env-file=.env scripts/check-coaching.mjs` for the six billable Decisions checks. An optional path to a synthetic mono PCM16LE 24 kHz recording also tests the live spoken response and saves its audio under `.local`. Use a synthetic recording saying "I don't want to do it"; never a private conversation. This check is separate from offline CI.
 
 ## Sources and credits
 
@@ -50,6 +65,8 @@ Created during the DevDay Exchange London hackathon on 1 November 2026 with Code
 Concrete debugging example: when calls connected silently, Codex added diagnostics without speech recordings, found that WebRTC had selected the earpiece, and changed the WebRTC audio configuration to use the loudspeaker. A second phone run confirmed the speaker route with live input and output events. The original double-ring sound is synthesized by `scripts/generate-ringback.py`; it uses no third-party recording. The app repeats it while connecting and stops it when speech begins or the call ends.
 
 The original custom drill-sergeant voice was created with OpenAI prompt-to-voice. Its voice description and clean sample script are in `server/voice-design.mjs`. No real person's recording or imitation was used. Each developer creates their own saved voice or supplies an authorized voice ID.
+
+The selected orange Pip atlas and app icon were generated with GPT Image 2.5 Sunburst from the approved original design. The earlier sprite draft was generated with Codex's built-in image tool. Prompts and generated artwork are in `output/imagegen`. Manrope and DM Sans come from the [Google Fonts repository](https://github.com/google/fonts); their SIL Open Font Licenses are bundled in `Sources/Habitaker/Resources/Fonts`.
 
 The [WebRTC Swift package](https://github.com/stasel/WebRTC) supplies Google's WebRTC binary under its upstream BSD license. Keep its license notices with redistributed builds. Apple's CallKit and PushKit provide system calling integration. The OpenAI pet sprite concept informed the app-specific state mapping; no ChatGPT user pet or library asset is bundled.
 

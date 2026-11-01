@@ -84,6 +84,13 @@ struct OAuthTests {
         }
         let valid = try sign(claims)
         #expect(try IDTokenValidator.validate(valid, keys: keys, clientID: "oaiapp_test", nonce: "test-nonce", now: now) == "test-subject")
+        var refreshedClaims = claims
+        refreshedClaims.removeValue(forKey: "nonce")
+        let refreshed = try sign(refreshedClaims)
+        #expect(try IDTokenValidator.validate(refreshed, keys: keys, clientID: "oaiapp_test", nonce: nil, now: now) == "test-subject")
+        #expect(throws: AuthFailure.self) {
+            try IDTokenValidator.validate(refreshed, keys: keys, clientID: "oaiapp_test", nonce: "test-nonce", now: now)
+        }
         for (name, value) in [("iss", "https://other.example" as Any), ("aud", "oaiapp_other" as Any),
                               ("nonce", "wrong" as Any), ("exp", now.timeIntervalSince1970 - 1 as Any),
                               ("nbf", now.timeIntervalSince1970 + 300 as Any)] {

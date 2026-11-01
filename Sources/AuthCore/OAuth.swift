@@ -108,7 +108,7 @@ struct JWKSet: Decodable {
 }
 
 enum IDTokenValidator {
-    static func validate(_ token: String, keys: JWKSet, clientID: String, nonce: String,
+    static func validate(_ token: String, keys: JWKSet, clientID: String, nonce: String?,
                          now: Date = Date()) throws -> String {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 3,
@@ -137,7 +137,7 @@ enum IDTokenValidator {
         guard let claims = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               claims["iss"] as? String == "https://auth.openai.com",
               let expiry = claims["exp"] as? Double, expiry > now.timeIntervalSince1970,
-              claims["nonce"] as? String == nonce,
+              nonce == nil || claims["nonce"] as? String == nonce,
               let subject = claims["sub"] as? String, !subject.isEmpty else {
             throw AuthFailure.invalid("ChatGPT identity checks failed. Try signing in again.")
         }
