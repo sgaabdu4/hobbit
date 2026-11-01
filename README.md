@@ -4,7 +4,7 @@ A native iPhone habit companion. Sign in with ChatGPT, choose Pip or create your
 
 Public source: [github.com/sgaabdu4/hobbit](https://github.com/sgaabdu4/hobbit). The Xcode project and bundle identifier retain the earlier Habitaker name to preserve installed sign-in and push registration.
 
-Verified on a physical iPhone on 1 November 2026: OAuth returned through the phone's loopback listener, signed identity validation passed, and ChatGPT-plan permission was granted. Pet onboarding runs on the device. GPT Image 2.5 generated the bundled original pet and expression sheet. The live Decisions API correctly classified three synthetic examples: completion, future intention and stopping a call. Two-way audio and incoming calls are awaiting device verification.
+Verified on a physical iPhone on 1 November 2026: OAuth returned through the phone's loopback listener, signed identity validation passed, and ChatGPT-plan permission was granted. Pet onboarding runs on the device. GPT Image 2.5 generated the bundled original pet and expression sheet. The live Decisions API correctly classified three synthetic examples: completion, future intention and stopping a call. Device voice diagnostics confirmed microphone input, received audio, input/output transcript events and loudspeaker routing; the tester heard the pet. Locked-screen incoming calls still need verification.
 
 ## Set up the development demo
 
@@ -37,13 +37,15 @@ No API key is required for this OAuth check. Credentials and the stable host ide
 - Apple's authentication browser stays open during authorization. After receiving the loopback callback, the local listener redirects to an internal completion scheme to close that browser. This mobile combination needs a real-device test; documentation alone is not proof it works.
 - ChatGPT plan permission is reported separately from identity verification. Inference has not been tested.
 - The product will generate an app-specific pet. Automatic ChatGPT pet-library access is no longer a requirement. The documented identity and Responses scopes do not establish access to that library.
-- Native voice, incoming-call handling, pet creation and sprite playback are implemented. Device audio and locked-screen delivery have not yet been checked. Sprite import is not implemented.
+- Native voice, incoming-call handling, pet creation and sprite playback are implemented. Foreground voice transport and loudspeaker routing were checked on the phone. Locked-screen delivery and phone-generated custom pets have not yet been checked. Sprite import is not implemented.
 
 Run the focused OAuth checks with `swift test`. They test callback validation, a valid RSA-signed identity, tampered signatures and invalid identity claims. They do not replace real sign-in or cover every JWT failure case.
 
 ## Sources and credits
 
 Created during the DevDay Exchange London hackathon on 1 November 2026 with Codex. Codex implemented and tested the OAuth signature/callback checks and adapted the documented GPT-Live transport to native Swift WebRTC and CallKit. No third-party application template is used. The original Pip artwork was generated using GPT Image 2.5 Sunburst through the bundled Codex Imagegen CLI. Prompts and originals are in `output/imagegen`; app copies are in `Sources/Habitaker/Resources`.
+
+Concrete debugging example: when calls connected silently, Codex added diagnostics without speech recordings, found that WebRTC had selected the earpiece, and changed the WebRTC audio configuration to use the loudspeaker. A second phone run confirmed the speaker route with live input and output events. The original double-ring sound is synthesized by `scripts/generate-ringback.py`; it uses no third-party recording. The app repeats it while connecting and stops it when speech begins or the call ends.
 
 The [WebRTC Swift package](https://github.com/stasel/WebRTC) supplies Google's WebRTC binary under its upstream BSD license. Keep its license notices with redistributed builds. Apple's CallKit and PushKit provide system calling integration. The OpenAI pet sprite concept informed the app-specific state mapping; no ChatGPT user pet or library asset is bundled.
 

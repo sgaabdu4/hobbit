@@ -28,6 +28,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         config.maximumCallGroups = 1
         config.supportedHandleTypes = [.generic]
         config.includesCallsInRecents = false
+        config.ringtoneSound = "hobbit-ring.caf"
         return config
     }())
     private let controller = CXCallController()
@@ -44,10 +45,15 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     private var directionOrder: [String: Int] = [:]
     private var sequence = 0
     private var pendingCommentary: (String, String)?
+    private let ringback = Ringback()
+    private var awaitingSpeech = false
 
     override init() {
         super.init()
         provider.setDelegate(self, queue: .main)
+        let configuration = RTCAudioSessionConfiguration.webRTC()
+        configuration.categoryOptions = [.allowBluetoothHFP, .defaultToSpeaker]
+        RTCAudioSessionConfiguration.setWebRTC(configuration)
         RTCAudioSession.sharedInstance().useManualAudio = true
         RTCAudioSession.sharedInstance().isAudioEnabled = false
         let registry = PKPushRegistry(queue: .main)
@@ -134,14 +140,19 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     private func startVoice() {
         callDeadline?.cancel()
         VoiceDiagnostics.record("stage", "starting_voice")
+        awaitingSpeech = true
         let voice = VoiceClient()
         self.voice = voice
         voice.onEvent = { [weak self] event in self?.receive(event) }
-        voice.onLevel = { [weak self] level in self?.audioLevel = level }
+        voice.onLevel = { [weak self] level in
+            self?.audioLevel = level
+            if level > 0.008 { self?.speechBegan() }
+        }
         voice.onFailure = { [weak self] message in self?.fail(message) }
         active = true
         connecting = true
         message = "Connecting to your AI pet..."
+        if RTCAudioSession.sharedInstance().isAudioEnabled { ringback.start() }
         connectionTask = Task {
             do { try await voice.connect(habit: habit, mode: mode, callID: incomingID) }
             catch { if !Task.isCancelled { fail(error.localizedDescription) } }
@@ -149,7 +160,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         callDeadline = Task {
             try? await Task.sleep(for: .seconds(40))
             guard !Task.isCancelled else { return }
-            if connecting { fail("The call could not connect. Check Wi-Fi and try again."); return }
+            if connecting || awaitingSpeech { fail("Your pet did not answer. Check Wi-Fi and try again."); return }
             try? await Task.sleep(for: .seconds(140))
             guard !Task.isCancelled else { return }
             message = "Your three-minute call has ended. Your progress is saved."
@@ -165,6 +176,8 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
 
     private func finish() {
+        awaitingSpeech = false
+        ringback.stop()
         connectionTask?.cancel()
         callDeadline?.cancel()
         voice?.close()
@@ -182,11 +195,19 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         incomingID = nil
     }
 
+    private func speechBegan() {
+        guard awaitingSpeech else { return }
+        awaitingSpeech = false
+        ringback.stop()
+        message = "You're connected. Tell your pet how it's going."
+    }
+
     private func receive(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
+        if type.hasSuffix("transcript.delta") { speechBegan() }
         if type == "session.started" {
             connecting = false
-            message = "You're connected. Tell your pet how it's going."
+            message = "Your pet is answering..."
             if incomingID == nil, let id = callUUID { provider.reportOutgoingCall(with: id, connectedAt: Date()) }
         } else if type == "session.closed" {
             if active { end() }
@@ -275,7 +296,10 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     nonisolated func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
         RTCAudioSession.sharedInstance().isAudioEnabled = true
-        Task { @MainActor in VoiceDiagnostics.record("audioActivated", true) }
+        Task { @MainActor in
+            VoiceDiagnostics.record("audioActivated", true)
+            if active, awaitingSpeech { ringback.start() }
+        }
     }
     nonisolated func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         RTCAudioSession.sharedInstance().isAudioEnabled = false

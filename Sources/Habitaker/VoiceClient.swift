@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import WebRTC
 
 @MainActor
@@ -77,6 +78,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
                         let stats = report.statistics.values
                         VoiceDiagnostics.record("audio", [
                             "enabled": RTCAudioSession.sharedInstance().isAudioEnabled,
+                            "volume": AVAudioSession.sharedInstance().outputVolume,
                             "receivedBytes": stats.filter { $0.type == "inbound-rtp" }.compactMap { ($0.values["bytesReceived"] as? NSNumber)?.intValue }.reduce(0, +),
                             "sentBytes": stats.filter { $0.type == "outbound-rtp" }.compactMap { ($0.values["bytesSent"] as? NSNumber)?.intValue }.reduce(0, +),
                             "inputLevel": stats.filter { $0.type == "media-source" }.compactMap { ($0.values["audioLevel"] as? NSNumber)?.doubleValue }.max() ?? 0,

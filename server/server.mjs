@@ -1,7 +1,7 @@
 import https from 'node:https';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { greeting, liveConfiguration, validateHabit } from './domain.mjs';
+import { greetingFor, liveConfiguration, validateHabit } from './domain.mjs';
 import { pushConfigured, sendCallPush } from './apns.mjs';
 
 const secret = readFileSync('.local/server-secret', 'utf8').trim();
@@ -120,8 +120,8 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
         }
         lastSessionAt = Date.now();
         if (incoming) incoming.status = 'active';
-        console.log('Voice session created.');
-        return reply(response, 201, { ...result, greeting });
+        console.log('Voice session created:', context.mode, context.mode === 'Gentle' ? 'marin' : 'vesper');
+        return reply(response, 201, { ...result, greeting: greetingFor(context) });
       } finally {
         livePending = false;
         if (incoming?.status === 'answering') incoming.status = Date.now() < incoming.expiresAt ? 'ringing' : 'missed';

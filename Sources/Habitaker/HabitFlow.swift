@@ -29,6 +29,7 @@ struct HabitFlow: View {
     @State private var creating = false
     @State private var description = "A tiny teal owl with a mischievous smile"
     @State private var confirmUnhinged = false
+    @State private var ranVoiceCheck = false
     @Environment(\.scenePhase) private var scenePhase
     private let ink = Color(red: 0.10, green: 0.24, blue: 0.20)
     private let accent = Color(red: 0.88, green: 0.32, blue: 0.16)
@@ -50,14 +51,24 @@ struct HabitFlow: View {
         .foregroundStyle(ink)
         .background(Color(red: 0.98, green: 0.97, blue: 0.93).ignoresSafeArea())
         .tint(accent)
-        .task { await calls.refresh() }
+        .task {
+            await calls.refresh()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--voice-check"), !ranVoiceCheck {
+                ranVoiceCheck = true
+                await calls.callNow()
+                try? await Task.sleep(for: .seconds(30))
+                if !Task.isCancelled { calls.end() }
+            }
+            #endif
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await calls.refresh() } }
         }
         .alert("Turn on Unhinged?", isPresented: $confirmUnhinged) {
             Button("Keep current mode", role: .cancel) {}
             Button("Use Unhinged") { calls.mode = "Unhinged"; calls.saveHabit() }
-        } message: { Text("Loud energy, absurd roasts and occasional swearing. You can end any call instantly.") }
+        } message: { Text("Fierce comic pressure, sharp roasts and strong swearing. You can end any call instantly.") }
     }
 
     private var onboarding: some View {
