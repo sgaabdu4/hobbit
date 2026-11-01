@@ -120,7 +120,7 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
                 do {
                     let result = try pending.callback(url)
                     self.attempt = nil
-                    self.respond(connection, status: "302 Found", headers: "Location: habitaker-auth://complete\r\n", body: "Return to Habitaker.")
+                    self.respond(connection, status: "302 Found", headers: "Location: habitaker-auth://complete\r\n", body: "Return to Hobbit.")
                     self.listener?.cancel()
                     self.listener = nil
                     self.record("callback_received", "OpenAI returned to your iPhone. Checking your identity.")
@@ -185,7 +185,7 @@ final class AuthCoordinator: NSObject, ObservableObject, ASWebAuthenticationPres
         busy = false
         timeout?.cancel()
         session = nil
-        record("identity_verified", "ChatGPT sign-in verified on this iPhone. Next: your Habitaker pet and voice call.")
+        record("identity_verified", "ChatGPT sign-in verified on this iPhone. Next: your Hobbit pet and voice call.")
     }
 
     private func fail(_ message: String) {

@@ -13,8 +13,11 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var meter: Timer?
     private var closeTimer: Timer?
     private var sessionStarted = false
+    private var greeting: String?
+    private var lastDiagnostic = Date.distantPast
 
     func connect(habit: String, mode: String, callID: String?) async throws {
+        VoiceDiagnostics.record("stage", "preparing_audio")
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -49,7 +52,10 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
         var body: [String: Any] = ["sdp": sdp, "habit": habit, "mode": mode]
         if let callID { body["callID"] = callID }
+        VoiceDiagnostics.record("stage", "requesting_session")
         let response = try await Backend.shared.request("voice", method: "POST", body: body)
+        VoiceDiagnostics.record("stage", "session_created")
+        greeting = response["greeting"] as? String
         try Task.checkCancellation()
         guard let transport = response["transport"] as? [String: Any], let answer = transport["sdp"] as? String else {
             throw AuthFailure.invalid("Voice returned no audio connection. Try again.")
@@ -66,6 +72,18 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
                     let level = report.statistics.values.filter { $0.type == "inbound-rtp" }
                         .compactMap { ($0.values["audioLevel"] as? NSNumber)?.doubleValue }.max() ?? 0
                     self?.onLevel?(level)
+                    if let self, Date().timeIntervalSince(self.lastDiagnostic) > 1 {
+                        self.lastDiagnostic = Date()
+                        let stats = report.statistics.values
+                        VoiceDiagnostics.record("audio", [
+                            "enabled": RTCAudioSession.sharedInstance().isAudioEnabled,
+                            "receivedBytes": stats.filter { $0.type == "inbound-rtp" }.compactMap { ($0.values["bytesReceived"] as? NSNumber)?.intValue }.reduce(0, +),
+                            "sentBytes": stats.filter { $0.type == "outbound-rtp" }.compactMap { ($0.values["bytesSent"] as? NSNumber)?.intValue }.reduce(0, +),
+                            "inputLevel": stats.filter { $0.type == "media-source" }.compactMap { ($0.values["audioLevel"] as? NSNumber)?.doubleValue }.max() ?? 0,
+                            "outputLevel": level,
+                            "route": RTCAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }
+                        ])
+                    }
                 }
             }
         }
@@ -100,12 +118,25 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         sessionStarted = false
     }
 
-    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        let state = dataChannel.readyState.rawValue
+        Task { @MainActor in VoiceDiagnostics.record("dataChannelState", state) }
+    }
     nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         let data = buffer.data
         DispatchQueue.main.async { [weak self] in
             guard let self, let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-            if event["type"] as? String == "session.started" { self.sessionStarted = true }
+            if let type = event["type"] as? String { VoiceDiagnostics.event(type) }
+            if event["type"] as? String == "error", let error = event["error"] as? [String: Any], let code = error["code"] as? String {
+                VoiceDiagnostics.record("apiErrorCode", code)
+            }
+            if event["type"] as? String == "session.started" {
+                self.sessionStarted = true
+                if let greeting = self.greeting {
+                    self.send(["type": "session.commentary.append", "event_id": UUID().uuidString, "delegation_id": NSNull(), "content": greeting])
+                    self.greeting = nil
+                }
+            }
             if event["type"] as? String == "session.closed" { self.shutdown() }
             self.onEvent?(event)
         }
@@ -115,6 +146,7 @@ final class VoiceClient: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
     nonisolated func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        Task { @MainActor in VoiceDiagnostics.record("iceState", newState.rawValue) }
         if newState == .failed { DispatchQueue.main.async { [weak self] in self?.onFailure?("The audio connection was lost. Try calling again.") } }
     }
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}

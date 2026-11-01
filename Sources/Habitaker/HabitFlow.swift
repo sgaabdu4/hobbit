@@ -37,7 +37,7 @@ struct HabitFlow: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
-                    Text("habitaker.").font(.system(size: 25, weight: .black, design: .rounded))
+                    Text("hobbit.").font(.system(size: 25, weight: .black, design: .rounded))
                     Spacer()
                     if pets.chosen { Text(calls.active ? "AI voice call" : "Today").font(.subheadline).foregroundStyle(.secondary) }
                 }

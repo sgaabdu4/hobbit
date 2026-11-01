@@ -11,7 +11,7 @@ struct HabitakerApp: App {
                 HabitFlow(calls: calls, pets: pets)
             } else {
             VStack(alignment: .leading, spacing: 28) {
-                Text("habitaker.").font(.title2.bold())
+                Text("hobbit.").font(.title2.bold())
                 Spacer()
                 Image(systemName: auth.verified ? "checkmark.shield.fill" : "person.crop.circle.badge.checkmark")
                     .font(.system(size: 62)).foregroundStyle(Color.orange)
@@ -22,7 +22,7 @@ struct HabitakerApp: App {
                 if auth.verified {
                     Label(auth.planEnabled ? "ChatGPT plan permission granted" : "ChatGPT plan permission not granted",
                           systemImage: auth.planEnabled ? "checkmark.circle" : "info.circle")
-                    Label("A new pet for Habitaker", systemImage: "pawprint")
+                    Label("A new pet for Hobbit", systemImage: "pawprint")
                 }
                 Spacer()
                 Button("Continue with ChatGPT", action: auth.signIn)

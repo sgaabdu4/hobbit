@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 
@@ -9,9 +9,10 @@ mkdirSync('.local/tls', { recursive: true, mode: 0o700 });
 mkdirSync('Sources/Habitaker/Resources', { recursive: true });
 const existingCertificate = existsSync('.local/tls/cert.pem')
   ? execFileSync('openssl', ['x509', '-in', '.local/tls/cert.pem', '-noout', '-text'], { encoding: 'utf8' }) : '';
-if (!existingCertificate.includes(`IP Address:${address}`) || !existingCertificate.includes('TLS Web Server Authentication')) {
+const certificateFresh = existingCertificate && spawnSync('openssl', ['x509', '-in', '.local/tls/cert.pem', '-checkend', '3600', '-noout'], { stdio: 'ignore' }).status === 0;
+if (!certificateFresh || !existingCertificate.includes(`IP Address:${address}`) || !existingCertificate.includes('TLS Web Server Authentication')) {
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2',
-    '-keyout', '.local/tls/key.pem', '-out', '.local/tls/cert.pem', '-subj', '/CN=Habitaker Local',
+    '-keyout', '.local/tls/key.pem', '-out', '.local/tls/cert.pem', '-subj', '/CN=Hobbit Local',
     '-addext', 'basicConstraints=critical,CA:FALSE',
     '-addext', 'keyUsage=critical,digitalSignature,keyEncipherment',
     '-addext', 'extendedKeyUsage=serverAuth',

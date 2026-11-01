@@ -89,10 +89,11 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         guard !active, !connecting, scheduledID == nil, !habit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, await permission() else { return }
         saveHabit()
         let id = UUID()
+        VoiceDiagnostics.reset()
         callUUID = id
         connecting = true
         do {
-            try await controller.request(CXTransaction(action: CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: "Habitaker pet"))))
+            try await controller.request(CXTransaction(action: CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: "Hobbit pet"))))
         } catch { connecting = false; callUUID = nil; message = "iPhone could not start the call. Try again." }
     }
 
@@ -132,6 +133,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
 
     private func startVoice() {
         callDeadline?.cancel()
+        VoiceDiagnostics.record("stage", "starting_voice")
         let voice = VoiceClient()
         self.voice = voice
         voice.onEvent = { [weak self] event in self?.receive(event) }
@@ -156,6 +158,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     }
 
     private func fail(_ message: String) {
+        VoiceDiagnostics.record("stage", "failed")
         self.message = message
         if let id = callUUID { provider.reportCall(with: id, endedAt: Date(), reason: .failed) }
         finish()
@@ -231,8 +234,8 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
         let incoming = payload.dictionaryPayload["call_id"] as? String
         let id = incoming.flatMap(UUID.init(uuidString:)) ?? UUID()
         let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .generic, value: "Habitaker pet")
-        update.localizedCallerName = "Your Habitaker pet"
+        update.remoteHandle = CXHandle(type: .generic, value: "Hobbit pet")
+        update.localizedCallerName = "Your Hobbit pet"
         update.supportsHolding = false
         update.supportsGrouping = false
         update.supportsUngrouping = false
@@ -272,6 +275,7 @@ final class CallCoordinator: NSObject, ObservableObject, PKPushRegistryDelegate,
     nonisolated func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
         RTCAudioSession.sharedInstance().isAudioEnabled = true
+        Task { @MainActor in VoiceDiagnostics.record("audioActivated", true) }
     }
     nonisolated func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         RTCAudioSession.sharedInstance().isAudioEnabled = false

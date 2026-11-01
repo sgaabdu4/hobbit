@@ -1,7 +1,7 @@
 import https from 'node:https';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { liveConfiguration, validateHabit } from './domain.mjs';
+import { greeting, liveConfiguration, validateHabit } from './domain.mjs';
 import { pushConfigured, sendCallPush } from './apns.mjs';
 
 const secret = readFileSync('.local/server-secret', 'utf8').trim();
@@ -28,7 +28,7 @@ async function readJSON(request) {
 const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cert: readFileSync('.local/tls/cert.pem') }, async (request, response) => {
   const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') || '');
   const expected = Buffer.from(secret);
-  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return reply(response, 401, { error: 'This device is not paired with the Habitaker server.' });
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return reply(response, 401, { error: 'This device is not paired with the Hobbit server.' });
   try {
     if (request.method === 'GET' && request.url === '/health') {
       return reply(response, 200, { voiceReady: Boolean(process.env.OPENAI_API_KEY), pushReady: pushConfigured(), deviceRegistered: Boolean(device.token) });
@@ -120,7 +120,8 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
         }
         lastSessionAt = Date.now();
         if (incoming) incoming.status = 'active';
-        return reply(response, 201, result);
+        console.log('Voice session created.');
+        return reply(response, 201, { ...result, greeting });
       } finally {
         livePending = false;
         if (incoming?.status === 'answering') incoming.status = Date.now() < incoming.expiresAt ? 'ringing' : 'missed';
@@ -133,4 +134,4 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
 });
 
 server.requestTimeout = 35000;
-server.listen(8787, '0.0.0.0', () => console.log('Habitaker HTTPS server listening on port 8787.'));
+server.listen(8787, '0.0.0.0', () => console.log('Hobbit HTTPS server listening on port 8787.'));

@@ -1,6 +1,8 @@
-# Habitaker
+# Hobbit
 
 A native iPhone habit companion. Sign in with ChatGPT, choose Pip or create your own pet, set one small habit, and talk with your pet. The development build includes native internet calls, a 15-second incoming-call demo, animated expressions and local habit completion.
+
+Public source: [github.com/sgaabdu4/hobbit](https://github.com/sgaabdu4/hobbit). The Xcode project and bundle identifier retain the earlier Habitaker name to preserve installed sign-in and push registration.
 
 Verified on a physical iPhone on 1 November 2026: OAuth returned through the phone's loopback listener, signed identity validation passed, and ChatGPT-plan permission was granted. Pet onboarding runs on the device. GPT Image 2.5 generated the bundled original pet and expression sheet. The live Decisions API correctly classified three synthetic examples: completion, future intention and stopping a call. Two-way audio and incoming calls are awaiting device verification.
 
@@ -15,7 +17,7 @@ Verified on a physical iPhone on 1 November 2026: OAuth returned through the pho
 
 The project pins WebRTC 156.0.0. Xcode resolves it automatically. No npm packages are required. The phone pins the generated TLS certificate and sends a device pairing token to this development server. This is a single-device hackathon setup, not a public multi-user backend. Never distribute a build containing your development pairing secret.
 
-Calls are capped at three minutes in the app. Scheduled calls currently live in server memory and are lost when it restarts. The 15-second button is a demo control, not a daily alarm. Apple controls the incoming-call screen; pet animations appear inside Habitaker. A force-quit app, network failure or iOS policy can prevent delivery, so do not rely on this for essential reminders.
+Calls are capped at three minutes in the app. Scheduled calls currently live in server memory and are lost when it restarts. The 15-second button is a demo control, not a daily alarm. Apple controls the incoming-call screen; pet animations appear inside Hobbit. A force-quit app, network failure or iOS policy can prevent delivery, so do not rely on this for essential reminders.
 
 Pet creation asks for one description and previews the result before saving. The app uses a four-state 2-by-2 image sheet: attentive, speaking, thinking and happy. It is an app-specific format, not a full ChatGPT pet-library export. Speaking frames follow received audio levels. Cosmetic transcript decisions cannot mark the habit done; completion uses a separate explicit-action decision and can be undone.
 
@@ -23,11 +25,11 @@ Pet creation asks for one description and previews the result before saving. The
 
 1. Open `Habitaker.xcodeproj` in Xcode 27.2 or later.
 2. Choose your Apple development team under Signing & Capabilities.
-3. Select a paired iPhone running iOS 18 or later and run Habitaker.
+3. Select a paired iPhone running iOS 18 or later and run Hobbit.
 4. Tap **Continue with ChatGPT**. Complete OpenAI's sign-in and consent flow on the phone.
-5. A successful test displays **You're signed in.** only after verifying the identity signature, issuer, audience, expiry and nonce.
+5. A successful test opens pet onboarding only after verifying the identity signature, issuer, audience, expiry and nonce.
 
-No API key is required for this OAuth check. Credentials and the stable host identifier stay in the iPhone Keychain. The app writes a nonsecret `Documents/verification.json` report containing test stages and permission booleans. It never writes tokens, authorization codes, email addresses or account identifiers to that report.
+No API key is required for this OAuth check. Credentials and the stable host identifier stay in the iPhone Keychain. The app writes a nonsecret `Documents/verification.json` report containing test stages and permission booleans. It never writes tokens, authorization codes, email addresses or account identifiers to that report. Voice diagnostics contain connection states, event counts and audio levels, never recordings or transcript text.
 
 ## Verification scope
 
