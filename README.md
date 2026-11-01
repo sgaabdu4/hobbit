@@ -10,7 +10,7 @@ The Today, Habits and Settings tabs remain visible on the main screens. These sc
 
 Public source: [github.com/sgaabdu4/hobbit](https://github.com/sgaabdu4/hobbit). The Xcode project and bundle identifier still use the earlier Habitaker name. This keeps the existing sign-in and push registration valid.
 
-[Watch the 89-second demo](docs/demo.mp4). The film shows a person scrolling on a phone, receiving a call and doing push-ups. The real iPhone app appears beside the film. ElevenLabs provides the narration and training music. OpenAI provides the drill-sergeant voice. Completion shows confetti, a trophy and the saved streak. The iPhone also gives a short vibration. See [demo notes and credits](DEMO.md) for the recording details.
+[Watch the 89-second demo on YouTube](https://youtu.be/9JupHPWnTk4) or [download the video](docs/demo.mp4). The film shows a person scrolling on a phone, receiving a call and doing push-ups. The real iPhone app appears beside the film. ElevenLabs provides the narration and training music. OpenAI provides the drill-sergeant voice. Completion shows confetti, a trophy and the saved streak. The iPhone also gives a short vibration. See [demo notes and credits](DEMO.md) for the recording details.
 
 <img src="docs/screenshots/pet.png" alt="Choose Pip or create a pet" width="220"> <img src="docs/screenshots/ringing.png" alt="Pip ringing on the iPhone" width="220"> <img src="docs/screenshots/completion.png" alt="Saved habit completion" width="220">
 
