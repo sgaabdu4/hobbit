@@ -6,6 +6,7 @@
   "engines": { "node": ">=24 <27" },
   "scripts": {
     "prepare:device": "node server/prepare-dev.mjs",
+    "create:voice": "node --env-file=.env scripts/create-drill-voice.mjs",
     "start": "node --env-file=.env server/server.mjs",
     "test": "node --test server/*.test.mjs"
   }

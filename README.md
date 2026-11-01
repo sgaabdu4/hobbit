@@ -21,6 +21,8 @@ Calls are capped at three minutes in the app. Scheduled calls currently live in 
 
 Pet creation asks for one description and previews the result before saving. The app uses a four-state 2-by-2 image sheet: attentive, speaking, thinking and happy. It is an app-specific format, not a full ChatGPT pet-library export. Speaking frames follow received audio levels. Cosmetic transcript decisions cannot mark the habit done; completion uses a separate explicit-action decision and can be undone.
 
+For a custom Unhinged voice, enable Voices read/write on the project key and run `npm run create:voice` once. This creates a new original synthetic voice, saves its ID under `.local`, and preserves its design prompt in `server/voice-design.mjs`. Restart the server to use it. An existing voice ID can instead be set as `OPENAI_UNHINGED_VOICE_ID`. Without a custom voice, stronger modes use Vesper; Gentle uses Marin. Vocal delivery varies and needs listening tests.
+
 ## Run the sign-in check
 
 1. Open `Habitaker.xcodeproj` in Xcode 27.2 or later.
@@ -46,6 +48,8 @@ Run the focused OAuth checks with `swift test`. They test callback validation, a
 Created during the DevDay Exchange London hackathon on 1 November 2026 with Codex. Codex implemented and tested the OAuth signature/callback checks and adapted the documented GPT-Live transport to native Swift WebRTC and CallKit. No third-party application template is used. The original Pip artwork was generated using GPT Image 2.5 Sunburst through the bundled Codex Imagegen CLI. Prompts and originals are in `output/imagegen`; app copies are in `Sources/Habitaker/Resources`.
 
 Concrete debugging example: when calls connected silently, Codex added diagnostics without speech recordings, found that WebRTC had selected the earpiece, and changed the WebRTC audio configuration to use the loudspeaker. A second phone run confirmed the speaker route with live input and output events. The original double-ring sound is synthesized by `scripts/generate-ringback.py`; it uses no third-party recording. The app repeats it while connecting and stops it when speech begins or the call ends.
+
+The original custom drill-sergeant voice was created with OpenAI prompt-to-voice. Its voice description and clean sample script are in `server/voice-design.mjs`. No real person's recording or imitation was used. Each developer creates their own saved voice or supplies an authorized voice ID.
 
 The [WebRTC Swift package](https://github.com/stasel/WebRTC) supplies Google's WebRTC binary under its upstream BSD license. Keep its license notices with redistributed builds. Apple's CallKit and PushKit provide system calling integration. The OpenAI pet sprite concept informed the app-specific state mapping; no ChatGPT user pet or library asset is bundled.
 

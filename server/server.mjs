@@ -5,6 +5,7 @@ import { greetingFor, liveConfiguration, validateHabit } from './domain.mjs';
 import { pushConfigured, sendCallPush } from './apns.mjs';
 
 const secret = readFileSync('.local/server-secret', 'utf8').trim();
+const unhingedVoiceID = process.env.OPENAI_UNHINGED_VOICE_ID || (existsSync('.local/drill-voice.json') ? JSON.parse(readFileSync('.local/drill-voice.json', 'utf8')).id : undefined);
 let device = existsSync('.local/device.json') ? JSON.parse(readFileSync('.local/device.json', 'utf8')) : {};
 const calls = new Map();
 let livePending = false;
@@ -109,7 +110,7 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
       try {
         const upstream = await fetch('https://api.openai.com/v1/live/sessions', {
           method: 'POST', headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ session: liveConfiguration(context), transport: { type: 'webrtc', sdp: input.sdp } }),
+          body: JSON.stringify({ session: liveConfiguration(context, unhingedVoiceID), transport: { type: 'webrtc', sdp: input.sdp } }),
           signal: AbortSignal.timeout(30000)
         });
         const result = await upstream.json();
@@ -120,7 +121,7 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
         }
         lastSessionAt = Date.now();
         if (incoming) incoming.status = 'active';
-        console.log('Voice session created:', context.mode, context.mode === 'Gentle' ? 'marin' : 'vesper');
+        console.log('Voice session created:', context.mode, context.mode === 'Unhinged' && unhingedVoiceID ? 'custom drill sergeant' : context.mode === 'Gentle' ? 'marin' : 'vesper');
         return reply(response, 201, { ...result, greeting: greetingFor(context) });
       } finally {
         livePending = false;
