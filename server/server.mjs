@@ -208,7 +208,11 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
     }
     const voiceMatch = request.url?.match(/^\/voice\/([a-fA-F0-9-]{36})$/);
     if (request.method === 'DELETE' && voiceMatch) {
-      if (activeVoice?.id === voiceMatch[1]) activeVoice = null;
+      if (activeVoice?.id === voiceMatch[1]) {
+        const call = calls.get(activeVoice.callID);
+        if (call?.status === 'active') call.status = 'ended';
+        activeVoice = null;
+      }
       return reply(response, 200, { ended: true });
     }
     if (request.method === 'POST' && request.url === '/voice') {
@@ -240,7 +244,7 @@ const server = https.createServer({ key: readFileSync('.local/tls/key.pem'), cer
           return reply(response, 502, { error: `OpenAI voice is unavailable (HTTP ${upstream.status}, ${code}).` });
         }
         lastSessionAt = Date.now();
-        activeVoice = { id: randomUUID(), expiresAt: Date.now() + 190000 };
+        activeVoice = { id: randomUUID(), callID: incoming?.id, expiresAt: Date.now() + 190000 };
         if (incoming) { incoming.status = 'active'; incoming.activeUntil = Date.now() + 190000; }
         console.log('Voice session created:', context.mode, context.mode === 'Unhinged' && unhingedVoiceID ? 'custom drill sergeant' : context.mode === 'Gentle' ? 'marin' : 'vesper');
         return reply(response, 201, { ...result, connectionID: activeVoice.id, greeting: input.purpose === 'onboarding' && !incoming ? onboardingGreeting : greetingFor(context) });

@@ -36,7 +36,7 @@ struct AnimatedPetView: View {
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(mouth == 0 ? "Your pet is \(mood.description)" : "Your \(mood.description) pet is speaking")
+            .accessibilityLabel((pets.usesCustomPet ? "Your custom pet" : "Pip") + (mouth == 0 ? " is \(mood.description)" : " is speaking"))
             .accessibilityIdentifier("pet-sprite")
             .accessibilityValue(mouth == 0 ? "listening" : "speaking")
         }

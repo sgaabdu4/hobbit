@@ -44,6 +44,10 @@ struct HabitEditor: View {
     @FocusState private var focused: Bool
 
     private var valid: Bool { !habit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && habit.count <= 140 }
+    private var scheduleTimeZone: TimeZone {
+        if !adding, let zone = calls.record?.timeZone, let saved = TimeZone(identifier: zone) { return saved }
+        return .current
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -86,7 +90,8 @@ struct HabitEditor: View {
                     Divider()
                     DatePicker("Call me every day", selection: $time, displayedComponents: .hourAndMinute)
                         .datePickerStyle(.compact).font(HobbitFont.body(13, weight: .semibold))
-                    Text(TimeZone.current.identifier.replacingOccurrences(of: "_", with: " "))
+                        .environment(\.timeZone, scheduleTimeZone)
+                    Text(scheduleTimeZone.identifier.replacingOccurrences(of: "_", with: " "))
                         .font(HobbitFont.body(12)).foregroundStyle(HobbitStyle.muted)
                     if calls.draftDefaultTime { Text("I suggested this time. Change it if another time suits you.").font(HobbitFont.body(12)) }
                     }
@@ -110,7 +115,7 @@ struct HabitEditor: View {
                     attemptedSave = true
                     focused = false
                     Task {
-                        if await calls.savePlan(habit: habit, mode: mode, time: time, paused: adding ? false : calls.record?.paused ?? false, adding: adding) { onSaved() }
+                        if await calls.savePlan(habit: habit, mode: mode, time: time, paused: adding ? false : calls.record?.paused ?? false, adding: adding, timeZone: scheduleTimeZone) { onSaved() }
                     }
                 }.disabled(!valid || calls.saving || !calls.ready || !calls.pushReady)
             }
@@ -120,7 +125,7 @@ struct HabitEditor: View {
             if !adding, let record = calls.record {
                 habit = record.habit
                 mode = record.mode
-                time = Calendar.current.date(bySettingHour: record.hour, minute: record.minute, second: 0, of: Date()) ?? Date()
+                time = record.calendar.date(bySettingHour: record.hour, minute: record.minute, second: 0, of: Date()) ?? Date()
             } else {
                 mode = "Gentle"
                 if adding {

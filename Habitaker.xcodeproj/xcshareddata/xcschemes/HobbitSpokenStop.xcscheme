@@ -13,7 +13,7 @@
    <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="NO" codeCoverageEnabled="NO" systemAttachmentLifetime="keepAlways" userAttachmentLifetime="keepAlways">
       <Testables>
          <TestableReference skipped="NO" parallelizable="NO">
-            <SelectedTests><Test Identifier="HobbitUITests/testSpokenHangup()"/><Test Identifier="HobbitUITests/testSpokenCompletion()"/></SelectedTests>
+            <SelectedTests><Test Identifier="HobbitUITests/testSpokenHangup()"/><Test Identifier="HobbitUITests/testSpokenCompletion()"/><Test Identifier="HobbitUITests/testInterruptedCallRecovery()"/></SelectedTests>
             <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="B20000000000000000000001" BuildableName="HobbitUITests.xctest" BlueprintName="HobbitUITests" ReferencedContainer="container:Habitaker.xcodeproj"/>
          </TestableReference>
       </Testables>

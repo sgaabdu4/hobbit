@@ -138,6 +138,9 @@ struct HabitFlow: View {
             if phase == .active { Task { await calls.refresh() } }
         }
         .onChange(of: tab) { _, _ in calls.showingCelebration = false }
+        .onChange(of: calls.connecting) { _, connecting in
+            if connecting { editing = false }
+        }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in calls.checkDay() }
     }
 
@@ -262,6 +265,7 @@ struct HabitFlow: View {
 
     private func addHabit() {
         calls.draftHabit = nil
+        calls.draftDefaultTime = false
         calls.message = ""
         adding = true
         editing = true

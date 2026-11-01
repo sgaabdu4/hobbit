@@ -98,11 +98,13 @@ The app saves test stages and permission results in `Documents/verification.json
 
 ## Verification scope
 
+See the [post-submission application check](AUDIT.md) for the latest device results, fixes and remaining limits. The submitted version is preserved in Git history.
+
 - **Sign-in:** Registration uses OpenAI's documented dynamic client flow and PKCE. An HTTP listener uses `127.0.0.1` on the iPhone. Apple's authentication browser stays open during authorization. The listener receives the callback, then redirects to an internal completion scheme to close the browser. This sequence passed on the physical iPhone.
 - **Session renewal:** Testing found an expired sign-in session. The app now uses the rotating refresh token to renew the session. It checks the new identity and saves the replacement credentials in Keychain.
 - **Habits:** Native interface tests passed for typed setup, daily call storage, completion, restart persistence, undo, pet selection and habit editing. A second habit had separate progress. It remained after an app restart. Two confirmation steps removed it without a change to the first habit. The bottom tabs and Settings controls needed no scrolling.
-- **Calls:** The Mac command triggered a real incoming call. The iPhone test answered it, connected to Live voice and completed the habit. Logs confirmed that the closing line finished before the system call ended. Foreground voice and loudspeaker output also passed.
-- **Pets:** Generation, angry expressions and talking previews passed on the iPhone. Received speech opened Pip's mouth. The ringing animation continued until audio started. Logs confirmed that the ringtone started and stopped.
+- **Calls:** The Mac command triggered a real incoming call. The iPhone test answered it, connected to Live voice and completed the habit. Logs confirmed that the closing line finished before the system call ended. Foreground voice and loudspeaker output also passed. The post-submission audit passed spoken completion, spoken hang-up and a call from the normal daily scheduler.
+- **Pets:** Generation, angry expressions and talking previews passed on the iPhone. Received speech opened Pip's mouth. The ringing animation continued until audio started. Logs confirmed that the ringtone started and stopped. The post-submission audit saved a generated pet and restored it after an app restart.
 - **Design:** The iPhone loaded Manrope and DM Sans. We inspected recordings of the dark Today, call and completion screens.
 - **Coaching:** A test sent synthetic speech saying “I don't want to do it” through GPT-Live. It used Unhinged mode and the custom voice. Pip challenged the delay and gave a ten-second first step. Eight live Decisions checks distinguished reluctance, a request to stop and completion.
 
@@ -111,8 +113,6 @@ The following limits remain:
 - ChatGPT plan permission and identity verification are separate checks. Inference paid through the ChatGPT plan has not been tested.
 - Hobbit generates its own pets. It does not use the ChatGPT pet library. The documented identity and Responses permissions do not establish access to that library.
 - Lock-screen presentation has not been checked from start to finish.
-- Saving a generated custom pet and restoring it after an app restart have not been checked from start to finish.
-- Button completion passed. The physical test for spoken completion did not pass; the demo does not prove this path works.
 
 Run `swift test` to check OAuth, daily completion, streak changes and mouth animation logic. Run `npm test` to check habits, decision separation and schedules across clock changes.
 
